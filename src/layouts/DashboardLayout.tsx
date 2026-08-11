@@ -10,6 +10,7 @@ import {
   Wallet,
   BarChart2,
   Settings,
+  Crown,
   Menu,
   X,
   LogOut,
@@ -38,6 +39,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, acti
     { path: '/sales', label: 'Vendas', icon: TrendingUp, comingSoon: true },
     { path: '/financial', label: 'Financeiro', icon: CreditCard },
     { path: '/payments', label: 'Pagamentos', icon: Wallet },
+    { path: '/plans', label: 'Planos & Preços', icon: Crown, badge: workspace?.plan || 'PRO' },
     { path: '/reports', label: 'Relatórios', icon: BarChart2, comingSoon: true },
     { path: '/settings', label: 'Configurações', icon: Settings },
   ];
@@ -102,11 +104,10 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, acti
                   key={item.path}
                   onClick={() => handleNav(item.path)}
                   id={`nav-link-${item.path.replace('/', '')}`}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                    isActive
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive
                       ? 'text-white bg-indigo-600'
                       : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center gap-3">
                     <Icon className="w-4 h-4" />
@@ -131,13 +132,23 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, acti
         {/* User Footer Section */}
         <div className="p-4 border-t border-slate-800/80 bg-slate-900/30 shrink-0">
           <div className="flex items-center justify-between gap-2.5 p-2 rounded-xl bg-slate-900/80 border border-slate-800/80 hover:border-slate-700/80 transition-colors">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-indigo-500 flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-xs">
+            <div
+              onClick={() => handleNav('/plans')}
+              className="flex items-center gap-2.5 min-w-0 cursor-pointer group"
+              title="Ver/Gerir Plano Atual"
+            >
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-indigo-500 flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-xs group-hover:scale-105 transition-transform">
                 {getUserInitials()}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-slate-100 truncate">{user?.name || 'Usuário'}</p>
-                <p className="text-[10px] font-medium text-slate-400 truncate">{workspace?.name || 'Plano Pro'}</p>
+                <p className="text-xs font-semibold text-slate-100 truncate group-hover:text-indigo-400 transition-colors">
+                  {user?.name || 'Usuário'}
+                </p>
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                    Plano {workspace?.plan || 'Pro'}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -197,11 +208,10 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, acti
                     <button
                       key={item.path}
                       onClick={() => handleNav(item.path)}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium ${
-                        isActive
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium ${isActive
                           ? 'bg-indigo-600 text-white'
                           : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center gap-3">
                         <Icon className="w-4 h-4" />

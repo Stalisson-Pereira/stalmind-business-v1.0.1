@@ -31,87 +31,13 @@ const DEFAULT_CONFIG: PaymentGatewayConfig = {
   },
 };
 
-const DEFAULT_AUTO_RULES: AutoBillingRule[] = [
-  {
-    id: 'abr_01',
-    workspaceId: 'ws_01',
-    title: 'Manutenção de Website & Servidores',
-    customerName: 'Nexus Tech Lda',
-    customerEmail: 'contabilidade@nexustech.pt',
-    customerPhone: '+351 910 000 111',
-    amount: 350,
-    frequency: 'monthly',
-    nextBillingDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    paymentMethod: 'mbway',
-    status: 'active',
-    autoSendEmail: true,
-    autoSendWhatsApp: true,
-    lateFeePercentage: 2,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'abr_02',
-    workspaceId: 'ws_01',
-    title: 'Retain de Gestão de Redes Sociais & Ads',
-    customerName: 'Oliveira & Filhos Studio',
-    customerEmail: 'geral@oliveirastudio.pt',
-    customerPhone: '+351 961 222 333',
-    amount: 750,
-    frequency: 'monthly',
-    nextBillingDate: new Date(Date.now() + 12 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    paymentMethod: 'multibanco',
-    status: 'active',
-    autoSendEmail: true,
-    autoSendWhatsApp: false,
-    lateFeePercentage: 1.5,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'abr_03',
-    workspaceId: 'ws_01',
-    title: 'Licenciamento Anual do Software ERP',
-    customerName: 'Bloom Arquitetura',
-    customerEmail: 'financeiro@bloom.pt',
-    amount: 1800,
-    frequency: 'yearly',
-    nextBillingDate: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    paymentMethod: 'stripe',
-    status: 'active',
-    autoSendEmail: true,
-    autoSendWhatsApp: true,
-    createdAt: new Date().toISOString(),
-  },
-];
+const DEFAULT_AUTO_RULES: AutoBillingRule[] = [];
 
-const DEFAULT_LINKS: PaymentLink[] = [
-  {
-    id: 'plk_01',
-    workspaceId: 'ws_01',
-    title: 'Pagamento Adiantado Orçamento #ORC-2026-004',
-    amount: 650,
-    customerName: 'Santos Logística',
-    customerEmail: 'compras@santoslog.pt',
-    linkUrl: 'https://pay.stalmind.com/checkout/plk_01',
-    status: 'active',
-    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'plk_02',
-    workspaceId: 'ws_01',
-    title: 'Sessão de Consultoria de IA Individual',
-    amount: 150,
-    customerName: 'Ana Martins',
-    customerEmail: 'ana.martins@gmail.com',
-    linkUrl: 'https://pay.stalmind.com/checkout/plk_02',
-    status: 'paid',
-    createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-];
+const DEFAULT_LINKS: PaymentLink[] = [];
 
 const CONFIG_STORAGE_KEY = 'stalmind_payment_config';
-const RULES_STORAGE_KEY = 'stalmind_auto_billing_rules';
-const LINKS_STORAGE_KEY = 'stalmind_payment_links';
+const RULES_STORAGE_KEY = 'stalmind_v2_auto_billing_rules';
+const LINKS_STORAGE_KEY = 'stalmind_v2_payment_links';
 
 export const paymentService = {
   async getGatewayConfig(workspaceId: string): Promise<PaymentGatewayConfig> {
@@ -147,7 +73,7 @@ export const paymentService = {
   async addAutoBillingRule(rule: Omit<AutoBillingRule, 'id' | 'createdAt'>): Promise<AutoBillingRule> {
     const newRule: AutoBillingRule = {
       ...rule,
-      id: `rule_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
     };
 
@@ -192,7 +118,7 @@ export const paymentService = {
   },
 
   async createPaymentLink(link: Omit<PaymentLink, 'id' | 'linkUrl' | 'createdAt'>): Promise<PaymentLink> {
-    const id = `plk_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    const id = crypto.randomUUID();
     const newLink: PaymentLink = {
       ...link,
       id,

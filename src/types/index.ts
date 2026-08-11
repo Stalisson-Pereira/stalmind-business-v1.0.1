@@ -21,6 +21,8 @@ export interface Workspace {
   email?: string;
   currency: 'EUR' | 'USD' | 'BRL';
   defaultTaxRate: number; // e.g. 23% in PT, 21% in ES
+  plan?: 'Starter' | 'Pro' | 'Enterprise';
+  planBilling?: 'monthly' | 'annually';
   createdAt: string;
 }
 

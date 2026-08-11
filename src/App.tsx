@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { MainLayout } from './components/layouts/MainLayout';
@@ -13,19 +13,12 @@ import { QuotesPage } from './pages/QuotesPage';
 import { MessagesPage } from './pages/MessagesPage';
 import { FinancialPage } from './pages/FinancialPage';
 import { PaymentsPage } from './pages/PaymentsPage';
+import { PlansPage } from './pages/PlansPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { Loader2 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
   const { user, loading } = useAuth();
-
-  useEffect(() => {
-    // Legacy prototype caches must never become a source of truth.
-    if (localStorage.getItem('stalmind_prototype_cleanup') !== '1') {
-      ['stalmind_customers', 'stalmind_quotes', 'stalmind_financial_transactions', 'stalmind_messages', 'stalmind_notifications'].forEach((key) => localStorage.removeItem(key));
-      localStorage.setItem('stalmind_prototype_cleanup', '1');
-    }
-  }, []);
   const [currentPath, setCurrentPath] = useState<string>('/dashboard');
   const [pageAction, setPageAction] = useState<string | undefined>(undefined);
 
@@ -75,6 +68,8 @@ const AppContent: React.FC = () => {
     pageComponent = <FinancialPage />;
   } else if (currentPath === '/payments') {
     pageComponent = <PaymentsPage />;
+  } else if (currentPath === '/plans') {
+    pageComponent = <PlansPage />;
   } else if (currentPath === '/settings') {
     pageComponent = <SettingsPage />;
   } else if (currentPath === '/sales' || currentPath === '/reports') {

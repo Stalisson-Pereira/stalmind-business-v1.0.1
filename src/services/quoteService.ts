@@ -1,138 +1,121 @@
-import { Quote, QuoteItem, QuoteStatus } from '../types';
+import { Quote, QuoteStatus } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
-function requireSupabase() {
-  if (!isSupabaseConfigured || !supabase) {
-    throw new Error('Supabase não está configurado.');
+const INITIAL_QUOTES: Quote[] = [];
+
+const STORAGE_KEY = 'stalmind_v2_quotes';
+
+function getLocalQuotes(): Quote[] {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) {
+    try {
+      return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
   }
-  return supabase;
+  return [];
 }
 
-function mapStatus(status: string): QuoteStatus {
-  return status === 'rejected' ? 'declined' : (status as QuoteStatus);
-}
-
-function mapQuote(row: any, items: QuoteItem[] = []): Quote {
-  const customer = Array.isArray(row.customer) ? row.customer[0] : row.customer;
-  return {
-    id: row.id,
-    workspaceId: row.organization_id,
-    customerId: row.customer_id,
-    customerName: customer?.name || customer?.company_name || 'Cliente sem nome',
-    customerEmail: customer?.email || undefined,
-    customerTaxId: customer?.tax_id || undefined,
-    customerAddress: customer?.address || undefined,
-    quoteNumber: row.quote_number,
-    items,
-    subtotal: Number(row.subtotal || 0),
-    taxRate: row.subtotal ? Number(((Number(row.tax_amount || 0) / Number(row.subtotal)) * 100).toFixed(2)) : 0,
-    taxAmount: Number(row.tax_amount || 0),
-    total: Number(row.total || 0),
-    status: mapStatus(row.status),
-    validUntil: row.valid_until || '',
-    notes: row.notes || undefined,
-    createdAt: row.created_at,
-  };
+function saveLocalQuotes(list: Quote[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
 }
 
 export const quoteService = {
-  async getQuotes(organizationId: string): Promise<Quote[]> {
-    const client = requireSupabase();
-    const { data, error } = await client
-      .from('quotes')
-      .select('*, customer:customers(name,company_name,email,tax_id,address), quote_items(*)')
-      .eq('organization_id', organizationId)
-      .order('created_at', { ascending: false });
+  async getQuotes(workspaceId: string): Promise<Quote[]> {
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase
+        .from('quotes')
+        .select('*')
+        .eq('organization_id', workspaceId)
+        .order('created_at', { ascending: false });
 
-    if (error) throw new Error(`Não foi possível carregar os orçamentos: ${error.message}`);
+      if (!error && data) {
+        return data.map((q) => ({
+          id: q.id,
+          workspaceId: q.workspace_id,
+          customerId: q.customer_id,
+          customerName: q.customer_name,
+          customerEmail: q.customer_email,
+          customerTaxId: q.customer_tax_id,
+          customerAddress: q.customer_address,
+          quoteNumber: q.quote_number,
+          items: q.items || [],
+          subtotal: q.subtotal,
+          taxRate: q.tax_rate,
+          taxAmount: q.tax_amount,
+          total: q.total,
+          status: q.status,
+          validUntil: q.valid_until,
+          notes: q.notes,
+          createdAt: q.created_at,
+        }));
+      }
+    }
 
-    return (data || []).map((row: any) => {
-      const items: QuoteItem[] = (row.quote_items || []).map((item: any) => ({
-        id: item.id,
-        description: item.description,
-        quantity: Number(item.quantity || 0),
-        unitPrice: Number(item.unit_price || 0),
-        total: Number(item.total || 0),
-      }));
-      return mapQuote(row, items);
-    });
+    return getLocalQuotes().filter((q) => q.workspaceId === workspaceId || !q.workspaceId);
   },
 
   async addQuote(quoteData: Omit<Quote, 'id' | 'createdAt' | 'quoteNumber'>): Promise<Quote> {
-    const client = requireSupabase();
-    const { data: authData } = await client.auth.getUser();
-    const { count, error: countError } = await client
-      .from('quotes')
-      .select('id', { count: 'exact', head: true })
-      .eq('organization_id', quoteData.workspaceId);
-
-    if (countError) throw new Error(`Não foi possível gerar o número do orçamento: ${countError.message}`);
-
+    const list = getLocalQuotes();
+    const count = list.length + 1;
     const year = new Date().getFullYear();
-    const quoteNumber = `ORC-${year}-${String((count || 0) + 1).padStart(3, '0')}`;
-    const dbStatus = quoteData.status === 'declined' ? 'rejected' : quoteData.status;
+    const quoteNumber = `ORC-${year}-${String(count).padStart(3, '0')}`;
 
-    const { data: row, error } = await client
-      .from('quotes')
-      .insert({
-        organization_id: quoteData.workspaceId,
-        customer_id: quoteData.customerId || null,
-        quote_number: quoteNumber,
-        status: dbStatus,
-        issue_date: new Date().toISOString().slice(0, 10),
-        valid_until: quoteData.validUntil || null,
-        subtotal: quoteData.subtotal,
-        tax_amount: quoteData.taxAmount,
-        discount_amount: 0,
-        total: quoteData.total,
-        notes: quoteData.notes || null,
-        created_by: authData.user?.id || null,
-      })
-      .select('*, customer:customers(name,company_name,email,tax_id,address)')
-      .single();
+    const newQuote: Quote = {
+      ...quoteData,
+      quoteNumber,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+    };
 
-    if (error) throw new Error(`Não foi possível criar o orçamento: ${error.message}`);
-
-    if (quoteData.items.length) {
-      const { error: itemsError } = await client.from('quote_items').insert(
-        quoteData.items.map((item) => ({
-          quote_id: row.id,
-          description: item.description,
-          quantity: item.quantity,
-          unit_price: item.unitPrice,
-          tax_rate: quoteData.taxRate,
-          discount: 0,
-          total: item.total,
-        })),
-      );
-      if (itemsError) throw new Error(`Orçamento criado, mas os itens falharam: ${itemsError.message}`);
+    if (isSupabaseConfigured && supabase) {
+      await supabase.from('quotes').insert({
+        workspace_id: newQuote.workspaceId,
+        customer_id: newQuote.customerId,
+        customer_name: newQuote.customerName,
+        customer_email: newQuote.customerEmail,
+        customer_tax_id: newQuote.customerTaxId,
+        customer_address: newQuote.customerAddress,
+        quote_number: newQuote.quoteNumber,
+        items: newQuote.items,
+        subtotal: newQuote.subtotal,
+        tax_rate: newQuote.taxRate,
+        tax_amount: newQuote.taxAmount,
+        total: newQuote.total,
+        status: newQuote.status,
+        valid_until: newQuote.validUntil,
+        notes: newQuote.notes,
+      });
     }
 
-    return mapQuote(row, quoteData.items);
+    list.unshift(newQuote);
+    saveLocalQuotes(list);
+    return newQuote;
   },
 
   async updateQuoteStatus(id: string, status: QuoteStatus): Promise<Quote> {
-    const client = requireSupabase();
-    const { data: row, error } = await client
-      .from('quotes')
-      .update({ status: status === 'declined' ? 'rejected' : status, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .select('*, customer:customers(name,company_name,email,tax_id,address), quote_items(*)')
-      .single();
+    const list = getLocalQuotes();
+    const index = list.findIndex((q) => q.id === id);
+    if (index === -1) throw new Error('Orçamento não encontrado');
 
-    if (error) throw new Error(`Não foi possível atualizar o orçamento: ${error.message}`);
-    return mapQuote(row, (row.quote_items || []).map((item: any) => ({
-      id: item.id,
-      description: item.description,
-      quantity: Number(item.quantity || 0),
-      unitPrice: Number(item.unit_price || 0),
-      total: Number(item.total || 0),
-    })));
+    const updated = { ...list[index], status };
+    list[index] = updated;
+    saveLocalQuotes(list);
+
+    if (isSupabaseConfigured && supabase) {
+      await supabase.from('quotes').update({ status }).eq('id', id);
+    }
+
+    return updated;
   },
 
   async deleteQuote(id: string): Promise<void> {
-    const client = requireSupabase();
-    const { error } = await client.from('quotes').delete().eq('id', id);
-    if (error) throw new Error(`Não foi possível eliminar o orçamento: ${error.message}`);
-  },
+    const list = getLocalQuotes().filter((q) => q.id !== id);
+    saveLocalQuotes(list);
+
+    if (isSupabaseConfigured && supabase) {
+      await supabase.from('quotes').delete().eq('id', id);
+    }
+  }
 };

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="stalmind-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284C7" />
+      <stop offset="30%" stop-color="#2563EB" />
+      <stop offset="70%" stop-color="#6366F1" />
+      <stop offset="100%" stop-color="#7C3AED" />
+    </linearGradient>
+  </defs>
+  <!-- Background Squircle for high visibility on light/dark tabs -->
+  <rect width="128" height="128" rx="28" fill="#0F172A" />
+  <rect width="126" height="126" x="1" y="1" rx="27" stroke="url(#stalmind-grad)" stroke-width="2" stroke-opacity="0.4" />
+  
+  <!-- Central Stylized 'S' -->
+  <path 
+    d="M 82,38 C 66,26 44,34 44,53 C 44,72 84,68 84,87 C 84,104 60,112 42,97" 
+    stroke="url(#stalmind-grad)" 
+    stroke-width="11" 
+    stroke-linecap="round" 
+    stroke-linejoin="round" 
+    fill="none" 
+  />
+  
+  <!-- Accent Nodes -->
+  <circle cx="82" cy="38" r="5" fill="#38BDF8" />
+  <circle cx="44" cy="53" r="5" fill="#60A5FA" />
+  <circle cx="84" cy="87" r="5" fill="#818CF8" />
+  <circle cx="42" cy="97" r="5" fill="#A78BFA" />
+</svg>

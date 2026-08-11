@@ -1,96 +1,113 @@
 import { Customer } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
-function requireSupabase() {
-  if (!isSupabaseConfigured || !supabase) {
-    throw new Error('Supabase não está configurado.');
+const INITIAL_CUSTOMERS: Customer[] = [];
+
+const STORAGE_KEY = 'stalmind_v2_customers';
+
+function getLocalCustomers(): Customer[] {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) {
+    try {
+      return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
   }
-  return supabase;
+  return [];
 }
 
-function mapCustomer(item: any): Customer {
-  return {
-    id: item.id,
-    workspaceId: item.organization_id,
-    name: item.name || '',
-    email: item.email || '',
-    phone: item.phone || item.mobile || '',
-    company: item.company_name || '',
-    taxId: item.tax_id || '',
-    address: item.address || '',
-    notes: item.notes || undefined,
-    status: item.is_active ? 'active' : 'inactive',
-    createdAt: item.created_at,
-  };
+function saveLocalCustomers(list: Customer[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
 }
 
 export const customerService = {
-  async getCustomers(organizationId: string): Promise<Customer[]> {
-    const client = requireSupabase();
-    const { data, error } = await client
-      .from('customers')
-      .select('*')
-      .eq('organization_id', organizationId)
-      .order('created_at', { ascending: false });
+  async getCustomers(workspaceId: string): Promise<Customer[]> {
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('organization_id', workspaceId)
+        .order('created_at', { ascending: false });
 
-    if (error) throw new Error(`Não foi possível carregar os clientes: ${error.message}`);
-    return (data || []).map(mapCustomer);
+      if (!error && data) {
+        return data.map((item) => ({
+          id: item.id,
+          workspaceId: item.workspace_id,
+          name: item.name,
+          email: item.email,
+          phone: item.phone,
+          company: item.company,
+          taxId: item.tax_id,
+          address: item.address,
+          notes: item.notes,
+          status: item.status,
+          createdAt: item.created_at,
+        }));
+      }
+    }
+
+    return getLocalCustomers().filter((c) => c.workspaceId === workspaceId || !c.workspaceId);
   },
 
   async addCustomer(customerData: Omit<Customer, 'id' | 'createdAt'>): Promise<Customer> {
-    const client = requireSupabase();
-    const { data: authData } = await client.auth.getUser();
+    const newCustomer: Customer = {
+      ...customerData,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+    };
 
-    const { data, error } = await client
-      .from('customers')
-      .insert({
-        organization_id: customerData.workspaceId,
-        type: customerData.company ? 'business' : 'individual',
+    if (isSupabaseConfigured && supabase) {
+      await supabase.from('customers').insert({
+        workspace_id: customerData.workspaceId,
         name: customerData.name,
-        company_name: customerData.company || null,
-        email: customerData.email || null,
-        phone: customerData.phone || null,
-        tax_id: customerData.taxId || null,
-        address: customerData.address || null,
-        notes: customerData.notes || null,
-        is_active: customerData.status !== 'inactive',
-        created_by: authData.user?.id || null,
-      })
-      .select('*')
-      .single();
+        email: customerData.email,
+        phone: customerData.phone,
+        company: customerData.company,
+        tax_id: customerData.taxId,
+        address: customerData.address,
+        notes: customerData.notes,
+        status: customerData.status,
+      });
+    }
 
-    if (error) throw new Error(`Não foi possível criar o cliente: ${error.message}`);
-    return mapCustomer(data);
+    const list = getLocalCustomers();
+    list.unshift(newCustomer);
+    saveLocalCustomers(list);
+    return newCustomer;
   },
 
   async updateCustomer(id: string, customerData: Partial<Customer>): Promise<Customer> {
-    const client = requireSupabase();
-    const payload: Record<string, unknown> = {};
+    const list = getLocalCustomers();
+    const index = list.findIndex((c) => c.id === id);
+    if (index === -1) throw new Error('Cliente não encontrado');
 
-    if (customerData.name !== undefined) payload.name = customerData.name;
-    if (customerData.company !== undefined) payload.company_name = customerData.company || null;
-    if (customerData.email !== undefined) payload.email = customerData.email || null;
-    if (customerData.phone !== undefined) payload.phone = customerData.phone || null;
-    if (customerData.taxId !== undefined) payload.tax_id = customerData.taxId || null;
-    if (customerData.address !== undefined) payload.address = customerData.address || null;
-    if (customerData.notes !== undefined) payload.notes = customerData.notes || null;
-    if (customerData.status !== undefined) payload.is_active = customerData.status !== 'inactive';
-    payload.updated_at = new Date().toISOString();
+    const updated = { ...list[index], ...customerData };
+    list[index] = updated;
+    saveLocalCustomers(list);
 
-    const { data, error } = await client
-      .from('customers')
-      .update(payload)
-      .eq('id', id)
-      .select('*')
-      .single();
+    if (isSupabaseConfigured && supabase) {
+      await supabase.from('customers').update({
+        name: updated.name,
+        email: updated.email,
+        phone: updated.phone,
+        company: updated.company,
+        tax_id: updated.taxId,
+        address: updated.address,
+        notes: updated.notes,
+        status: updated.status,
+      }).eq('id', id);
+    }
 
-    if (error) throw new Error(`Não foi possível atualizar o cliente: ${error.message}`);
-    return mapCustomer(data);
+    return updated;
   },
 
   async deleteCustomer(id: string): Promise<void> {
-    const client = requireSupabase();
-    const { error } = await client.from('customers').delete().eq('id', id);
-    if (error) throw new Error(`Não foi possível eliminar o cliente: ${error.message}`);
-  },
+    const list = getLocalCustomers().filter((c) => c.id !== id);
+    saveLocalCustomers(list);
+
+    if (isSupabaseConfigured && supabase) {
+      await supabase.from('customers').delete().eq('id', id);
+    }
+  }
 };

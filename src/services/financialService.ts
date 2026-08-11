@@ -1,111 +1,9 @@
 import { FinancialTransaction, TransactionStatus } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
-const INITIAL_TRANSACTIONS: FinancialTransaction[] = [
-  {
-    id: 'tx_01',
-    workspaceId: 'ws_01',
-    type: 'income',
-    title: 'Adjudicação de Projeto Website - Nexus Tech',
-    amount: 2500,
-    category: 'Vendas & Serviços',
-    status: 'paid',
-    date: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    customerOrSupplier: 'Nexus Tech Lda',
-    paymentMethod: 'Transferência Bancária',
-    notes: '50% de entrada referente ao orçamento #ORC-2026-001',
-    createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'tx_02',
-    workspaceId: 'ws_01',
-    type: 'income',
-    title: 'Consultoria de Estratégia Digital - Oliveira Studio',
-    amount: 1200,
-    category: 'Consultoria',
-    status: 'paid',
-    date: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    customerOrSupplier: 'Oliveira & Filhos Studio',
-    paymentMethod: 'MB WAY',
-    notes: 'Sessões mensais de mentoria de produto',
-    createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'tx_03',
-    workspaceId: 'ws_01',
-    type: 'income',
-    title: 'Subscrição Mensal de Manutenção App',
-    amount: 450,
-    category: 'Vendas & Serviços',
-    status: 'pending',
-    date: new Date().toISOString().split('T')[0],
-    dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    customerOrSupplier: 'Bloom Arquitetura',
-    paymentMethod: 'Débito Direto',
-    notes: 'Fatura mensal de alojamento e suporte',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'tx_04',
-    workspaceId: 'ws_01',
-    type: 'expense',
-    title: 'Subscrições de Software (Figma & Vercel)',
-    amount: 185,
-    category: 'Software & Ferramentas',
-    status: 'paid',
-    date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    customerOrSupplier: 'Vercel Inc / Figma',
-    paymentMethod: 'Cartão de Crédito',
-    notes: 'Licenças de design e alojamento web',
-    createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'tx_05',
-    workspaceId: 'ws_01',
-    type: 'expense',
-    title: 'Campanha de Marketing Digital (Google & Meta Ads)',
-    amount: 350,
-    category: 'Marketing & Anúncios',
-    status: 'paid',
-    date: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    customerOrSupplier: 'Google Ireland / Meta',
-    paymentMethod: 'Cartão de Crédito',
-    notes: 'Anúncios de angariação de novos clientes',
-    createdAt: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'tx_06',
-    workspaceId: 'ws_01',
-    type: 'expense',
-    title: 'Aluguer de Espaço de Coworking',
-    amount: 600,
-    category: 'Instalações & Aluguer',
-    status: 'pending',
-    date: new Date().toISOString().split('T')[0],
-    dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    customerOrSupplier: 'Porto Innovation Hub',
-    paymentMethod: 'Transferência Bancária',
-    notes: 'Renda mensal do escritório',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'tx_07',
-    workspaceId: 'ws_01',
-    type: 'income',
-    title: 'Desenvolvimento de Automação de Processos',
-    amount: 3200,
-    category: 'Vendas & Serviços',
-    status: 'overdue',
-    date: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    dueDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    customerOrSupplier: 'Santos Logística',
-    paymentMethod: 'Transferência Bancária',
-    notes: 'Lembrete enviado ao cliente via WhatsApp',
-    createdAt: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-];
+const INITIAL_TRANSACTIONS: FinancialTransaction[] = [];
 
-const STORAGE_KEY = 'stalmind_financial_transactions';
+const STORAGE_KEY = 'stalmind_v2_financial_transactions';
 
 export const financialService = {
   async getTransactions(workspaceId: string): Promise<FinancialTransaction[]> {
@@ -114,7 +12,7 @@ export const financialService = {
         const { data, error } = await supabase
           .from('financial_transactions')
           .select('*')
-          .eq('workspace_id', workspaceId)
+          .eq('organization_id', workspaceId)
           .order('date', { ascending: false });
 
         if (!error && data && data.length > 0) {
@@ -156,7 +54,7 @@ export const financialService = {
   async addTransaction(tx: Omit<FinancialTransaction, 'id' | 'createdAt'>): Promise<FinancialTransaction> {
     const newTx: FinancialTransaction = {
       ...tx,
-      id: `tx_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
     };
 

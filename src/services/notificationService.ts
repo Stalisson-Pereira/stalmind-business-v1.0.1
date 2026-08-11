@@ -1,53 +1,8 @@
 import { AppNotification } from '../types';
 
-const INITIAL_NOTIFICATIONS: AppNotification[] = [
-  {
-    id: 'notif_1',
-    title: 'Orçamento Aceite!',
-    message: 'O cliente Nexus Tech Lda aceitou o orçamento #ORC-2026-004 (€650,00).',
-    type: 'quote',
-    read: false,
-    createdAt: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-    link: '/quotes',
-  },
-  {
-    id: 'notif_2',
-    title: 'Pagamento Recebido (MB WAY)',
-    message: 'Recebeu €150,00 de Ana Martins referente a Sessão de Consultoria.',
-    type: 'payment',
-    read: false,
-    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    link: '/financial',
-  },
-  {
-    id: 'notif_3',
-    title: 'Nova Mensagem do Cliente',
-    message: 'Oliveira & Filhos Studio enviou um novo anexo no chat de projeto.',
-    type: 'message',
-    read: false,
-    createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
-    link: '/messages',
-  },
-  {
-    id: 'notif_4',
-    title: 'Cobrança Automática Enviada',
-    message: 'Lembrete enviado com sucesso via WhatsApp para Bloom Arquitetura.',
-    type: 'billing',
-    read: true,
-    createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    link: '/payments',
-  },
-  {
-    id: 'notif_5',
-    title: 'Backup do Sistema Concluído',
-    message: 'Os seus dados do espaço de trabalho foram salvos com criptografia.',
-    type: 'system',
-    read: true,
-    createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
-  },
-];
+const INITIAL_NOTIFICATIONS: AppNotification[] = [];
 
-const STORAGE_KEY = 'stalmind_app_notifications';
+const STORAGE_KEY = 'stalmind_v2_app_notifications';
 
 export const notificationService = {
   getNotifications(): AppNotification[] {

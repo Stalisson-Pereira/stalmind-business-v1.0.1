@@ -39,32 +39,9 @@ export const MESSAGE_TEMPLATES: MessageTemplate[] = [
   },
 ];
 
-const INITIAL_MESSAGES: Message[] = [
-  {
-    id: 'msg_01',
-    workspaceId: 'ws_01',
-    customerName: 'Mariana Costa (Nexus Tech)',
-    customerEmail: 'mariana.costa@nexustech.pt',
-    category: 'quote',
-    title: 'Envio do Orçamento ORC-2026-001',
-    content: 'Olá Mariana,\n\nConforme combinado, envio a proposta ORC-2026-001 para a consultoria de estratégia digital.\n\nCumprimentos,\nAlex Silva',
-    status: 'sent',
-    createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'msg_02',
-    workspaceId: 'ws_01',
-    customerName: 'Inês Ferreira (Bloom Arquitetura)',
-    customerEmail: 'ines@bloomarq.pt',
-    category: 'followup',
-    title: 'Follow-up de Diagnóstico Inicial',
-    content: 'Olá Inês,\n\nConseguiu rever os detalhes da proposta para automação do CRM?\n\nAbraço,\nAlex',
-    status: 'draft',
-    createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-];
+const INITIAL_MESSAGES: Message[] = [];
 
-const STORAGE_KEY = 'stalmind_messages';
+const STORAGE_KEY = 'stalmind_v2_messages';
 
 function getLocalMessages(): Message[] {
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -75,8 +52,7 @@ function getLocalMessages(): Message[] {
       console.error(e);
     }
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_MESSAGES));
-  return INITIAL_MESSAGES;
+  return [];
 }
 
 function saveLocalMessages(list: Message[]) {
@@ -92,7 +68,7 @@ export const messageService = {
     const list = getLocalMessages();
     const newMsg: Message = {
       ...data,
-      id: `msg_${Date.now()}`,
+      id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
     };
     list.unshift(newMsg);
