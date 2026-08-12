@@ -12,7 +12,7 @@ export const financialService = {
         const { data, error } = await supabase
           .from('financial_transactions')
           .select('*')
-          .eq('organization_id', workspaceId)
+          .eq('workspace_id', workspaceId)
           .order('date', { ascending: false });
 
         if (!error && data && data.length > 0) {

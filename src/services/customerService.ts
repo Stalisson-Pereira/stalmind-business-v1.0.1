@@ -27,7 +27,7 @@ export const customerService = {
       const { data, error } = await supabase
         .from('customers')
         .select('*')
-        .eq('organization_id', workspaceId)
+        .eq('workspace_id', workspaceId)
         .order('created_at', { ascending: false });
 
       if (!error && data) {

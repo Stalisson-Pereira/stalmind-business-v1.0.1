@@ -27,7 +27,7 @@ export const quoteService = {
       const { data, error } = await supabase
         .from('quotes')
         .select('*')
-        .eq('organization_id', workspaceId)
+        .eq('workspace_id', workspaceId)
         .order('created_at', { ascending: false });
 
       if (!error && data) {
