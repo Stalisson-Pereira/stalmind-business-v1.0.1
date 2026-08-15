@@ -1,5 +1,12 @@
-import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
-import { User, Workspace } from '../types';
+import {
+  supabase,
+  isSupabaseConfigured,
+} from '../lib/supabaseClient';
+
+import {
+  User,
+  Workspace,
+} from '../types';
 
 // ============================================================
 // MOCK / DEMO
@@ -46,16 +53,26 @@ const WORKSPACE_KEY = 'stalmind_workspace';
 function mapUser(user: any): User {
   return {
     id: user.id,
+
     email: user.email || '',
+
     name:
       user.user_metadata?.full_name ||
       user.user_metadata?.name ||
       user.email?.split('@')[0] ||
       'Usuário StalMind',
-    avatarUrl: user.user_metadata?.avatar_url,
-    phone: user.user_metadata?.phone,
-    jobTitle: user.user_metadata?.job_title,
-    createdAt: user.created_at,
+
+    avatarUrl:
+      user.user_metadata?.avatar_url,
+
+    phone:
+      user.user_metadata?.phone,
+
+    jobTitle:
+      user.user_metadata?.job_title,
+
+    createdAt:
+      user.created_at,
   };
 }
 
@@ -69,39 +86,74 @@ function mapWorkspace(
 ): Workspace {
   return {
     id: workspace.id,
+
     name: workspace.name,
+
     slug: workspace.slug,
-    ownerId: workspace.owner_id || '',
 
-    taxId: workspace.tax_id,
-    address: workspace.address,
-    email: workspace.email,
-    phone: workspace.phone,
+    ownerId:
+      workspace.owner_id || '',
 
-    currency: workspace.currency || 'EUR',
+    taxId:
+      workspace.tax_id,
 
-    defaultTaxRate: Number(
-      workspace.default_tax_rate ?? 23
-    ),
+    address:
+      workspace.address,
 
-    plan: workspace.plan || 'free',
-    planBilling: workspace.plan_billing,
+    email:
+      workspace.email,
 
-    createdAt: workspace.created_at,
+    phone:
+      workspace.phone,
 
-    legalName: workspace.legal_name,
-    website: workspace.website,
-    city: workspace.city,
-    postalCode: workspace.postal_code,
-    country: workspace.country,
-    locale: workspace.locale,
-    timezone: workspace.timezone,
-    logoUrl: workspace.logo_url,
+    currency:
+      workspace.currency || 'EUR',
+
+    defaultTaxRate:
+      Number(
+        workspace.default_tax_rate ?? 23
+      ),
+
+    plan:
+      workspace.plan || 'free',
+
+    planBilling:
+      workspace.plan_billing,
+
+    createdAt:
+      workspace.created_at,
+
+    legalName:
+      workspace.legal_name,
+
+    website:
+      workspace.website,
+
+    city:
+      workspace.city,
+
+    postalCode:
+      workspace.postal_code,
+
+    country:
+      workspace.country,
+
+    locale:
+      workspace.locale,
+
+    timezone:
+      workspace.timezone,
+
+    logoUrl:
+      workspace.logo_url,
 
     role,
 
-    trialStartedAt: workspace.trial_started_at,
-    trialEndsAt: workspace.trial_ends_at,
+    trialStartedAt:
+      workspace.trial_started_at,
+
+    trialEndsAt:
+      workspace.trial_ends_at,
 
     trialUsed:
       workspace.trial_used ?? false,
@@ -120,9 +172,10 @@ function hasActiveTrial(
   }
 
   if (workspace.trialEndsAt) {
-    const trialEnd = new Date(
-      workspace.trialEndsAt
-    ).getTime();
+    const trialEnd =
+      new Date(
+        workspace.trialEndsAt
+      ).getTime();
 
     if (
       !Number.isNaN(trialEnd) &&
@@ -149,9 +202,10 @@ function hasActiveTrial(
 function isTrialAlreadyActiveError(
   error: any
 ): boolean {
-  const message = String(
-    error?.message || ''
-  ).toLowerCase();
+  const message =
+    String(
+      error?.message || ''
+    ).toLowerCase();
 
   return (
     error?.code === 'P0001' &&
@@ -188,18 +242,19 @@ export const authService = {
       supabase
     ) {
       try {
-
         const {
-          data: { session },
-        } = await supabase.auth.getSession();
+          data: {
+            session,
+          },
+        } =
+          await supabase.auth.getSession();
 
         if (!session?.user) {
           return null;
         }
 
-        const user = mapUser(
-          session.user
-        );
+        const user =
+          mapUser(session.user);
 
         localStorage.setItem(
           SESSION_KEY,
@@ -209,7 +264,6 @@ export const authService = {
         return user;
 
       } catch (error) {
-
         console.warn(
           '[Auth] Erro ao obter sessão Supabase:',
           error
@@ -229,15 +283,11 @@ export const authService = {
       );
 
     if (savedSession) {
-
       try {
-
         return JSON.parse(
           savedSession
         );
-
       } catch (error) {
-
         console.error(
           '[Auth] Erro ao ler sessão local:',
           error
@@ -262,17 +312,19 @@ export const authService = {
       isSupabaseConfigured &&
       supabase
     ) {
-
       try {
 
         const {
-          data: { session },
-        } = await supabase.auth.getSession();
+          data: {
+            session,
+          },
+        } =
+          await supabase.auth.getSession();
 
-        const user = session?.user;
+        const user =
+          session?.user;
 
         if (!user) {
-
           console.warn(
             '[Workspace] Nenhum usuário autenticado.'
           );
@@ -283,47 +335,47 @@ export const authService = {
         const {
           data,
           error,
-        } = await supabase
-          .from('workspace_members')
-          .select(`
-            role,
-            workspace_id,
-            workspaces (
-              id,
-              name,
-              legal_name,
-              tax_id,
-              email,
-              phone,
-              website,
-              address,
-              city,
-              postal_code,
-              country,
-              currency,
-              locale,
-              timezone,
-              logo_url,
-              created_at,
-              updated_at,
-              slug,
-              default_tax_rate,
-              plan,
-              plan_billing,
-              trial_started_at,
-              trial_ends_at,
-              trial_used
+        } =
+          await supabase
+            .from('workspace_members')
+            .select(`
+              role,
+              workspace_id,
+              workspaces (
+                id,
+                name,
+                legal_name,
+                tax_id,
+                email,
+                phone,
+                website,
+                address,
+                city,
+                postal_code,
+                country,
+                currency,
+                locale,
+                timezone,
+                logo_url,
+                created_at,
+                updated_at,
+                slug,
+                default_tax_rate,
+                plan,
+                plan_billing,
+                trial_started_at,
+                trial_ends_at,
+                trial_used
+              )
+            `)
+            .eq(
+              'user_id',
+              user.id
             )
-          `)
-          .eq(
-            'user_id',
-            user.id
-          )
-          .limit(1)
-          .maybeSingle();
+            .limit(1)
+            .maybeSingle();
 
         if (error) {
-
           console.error(
             '[Workspace] Erro ao buscar workspace:',
             error
@@ -336,7 +388,6 @@ export const authService = {
           !data ||
           !data.workspaces
         ) {
-
           console.warn(
             '[Workspace] Usuário não possui workspace associado.'
           );
@@ -345,7 +396,9 @@ export const authService = {
         }
 
         const workspaceData =
-          Array.isArray(data.workspaces)
+          Array.isArray(
+            data.workspaces
+          )
             ? data.workspaces[0]
             : data.workspaces;
 
@@ -387,15 +440,11 @@ export const authService = {
       );
 
     if (saved) {
-
       try {
-
         return JSON.parse(
           saved
         );
-
       } catch (error) {
-
         console.error(
           '[Workspace] Erro ao ler workspace local:',
           error
@@ -415,7 +464,6 @@ export const authService = {
   ): Promise<boolean> {
 
     if (!workspaceId) {
-
       throw new Error(
         'Workspace inválido para iniciar o trial.'
       );
@@ -429,11 +477,13 @@ export const authService = {
     }
 
     const {
-      data: { session },
-    } = await supabase.auth.getSession();
+      data: {
+        session,
+      },
+    } =
+      await supabase.auth.getSession();
 
     if (!session?.user) {
-
       throw new Error(
         'Usuário não autenticado para iniciar o trial.'
       );
@@ -448,9 +498,10 @@ export const authService = {
 
     if (
       currentWorkspace &&
-      hasActiveTrial(currentWorkspace)
+      hasActiveTrial(
+        currentWorkspace
+      )
     ) {
-
       console.info(
         '[StalMind Trial] Trial já está ativo.'
       );
@@ -464,13 +515,14 @@ export const authService = {
 
     const {
       error,
-    } = await supabase.rpc(
-      'start_workspace_trial',
-      {
-        target_workspace:
-          workspaceId,
-      }
-    );
+    } =
+      await supabase.rpc(
+        'start_workspace_trial',
+        {
+          target_workspace:
+            workspaceId,
+        }
+      );
 
     // ----------------------------------------------------------
     // ERRO
@@ -483,7 +535,6 @@ export const authService = {
           error
         )
       ) {
-
         console.info(
           '[StalMind Trial] O workspace já possui um trial ativo.'
         );
@@ -516,41 +567,57 @@ export const authService = {
     email: string
   ): Promise<void> {
 
-    if (
-      !isSupabaseConfigured ||
-      !supabase
-    ) {
-
-      throw new Error(
-        'Supabase não está configurado.'
-      );
-    }
-
-    const cleanEmail =
-      email.trim().toLowerCase();
-
-    if (!cleanEmail) {
-
-      throw new Error(
-        'Informe um e-mail válido.'
-      );
-    }
-
-    const redirectTo =
-      `${window.location.origin}/reset-password`;
-
     console.log(
-      '================================='
+      '[RESET PASSWORD] ================================='
     );
 
     console.log(
       '[RESET PASSWORD] INÍCIO'
     );
 
+    // ----------------------------------------------------------
+    // VERIFICA SUPABASE
+    // ----------------------------------------------------------
+
+    if (
+      !isSupabaseConfigured ||
+      !supabase
+    ) {
+      console.error(
+        '[RESET PASSWORD] Supabase não está configurado.'
+      );
+
+      throw new Error(
+        'Supabase não está configurado.'
+      );
+    }
+
+    // ----------------------------------------------------------
+    // LIMPA EMAIL
+    // ----------------------------------------------------------
+
+    const cleanEmail =
+      email
+        .trim()
+        .toLowerCase();
+
     console.log(
       '[RESET PASSWORD] Email:',
       cleanEmail
     );
+
+    if (!cleanEmail) {
+      throw new Error(
+        'Informe um e-mail válido.'
+      );
+    }
+
+    // ----------------------------------------------------------
+    // REDIRECT
+    // ----------------------------------------------------------
+
+    const redirectTo =
+      `${window.location.origin}/reset-password`;
 
     console.log(
       '[RESET PASSWORD] Origin:',
@@ -563,10 +630,19 @@ export const authService = {
     );
 
     console.log(
-      '================================='
+      '[RESET PASSWORD] Supabase configurado:',
+      isSupabaseConfigured
     );
 
+    // ----------------------------------------------------------
+    // ENVIA PEDIDO PARA SUPABASE
+    // ----------------------------------------------------------
+
     try {
+
+      console.log(
+        '[RESET PASSWORD] Chamando resetPasswordForEmail...'
+      );
 
       const {
         data,
@@ -579,6 +655,14 @@ export const authService = {
           }
         );
 
+      // --------------------------------------------------------
+      // RESPOSTA
+      // --------------------------------------------------------
+
+      console.log(
+        '[RESET PASSWORD] Resposta recebida.'
+      );
+
       console.log(
         '[RESET PASSWORD] DATA:',
         data
@@ -588,6 +672,10 @@ export const authService = {
         '[RESET PASSWORD] ERROR:',
         error
       );
+
+      // --------------------------------------------------------
+      // ERRO SUPABASE
+      // --------------------------------------------------------
 
       if (error) {
 
@@ -602,8 +690,24 @@ export const authService = {
         );
       }
 
+      // --------------------------------------------------------
+      // SUCESSO
+      // --------------------------------------------------------
+
+      console.log(
+        '[RESET PASSWORD] ================================='
+      );
+
       console.log(
         '[RESET PASSWORD] SOLICITAÇÃO ACEITA PELO SUPABASE'
+      );
+
+      console.log(
+        '[RESET PASSWORD] E-mail de recuperação solicitado com sucesso.'
+      );
+
+      console.log(
+        '[RESET PASSWORD] ================================='
       );
 
     } catch (error: any) {
@@ -647,19 +751,20 @@ export const authService = {
       } =
         await supabase.auth.signInWithPassword({
           email:
-            email.trim().toLowerCase(),
+            email
+              .trim()
+              .toLowerCase(),
+
           password,
         });
 
       if (error) {
-
         throw new Error(
           error.message
         );
       }
 
       if (!data.user) {
-
         throw new Error(
           'Usuário não encontrado após login.'
         );
@@ -753,11 +858,12 @@ export const authService = {
         email ||
         MOCK_USER.email,
 
-      name: email
-        ? email
-            .split('@')[0]
-            .toUpperCase()
-        : MOCK_USER.name,
+      name:
+        email
+          ? email
+              .split('@')[0]
+              .toUpperCase()
+          : MOCK_USER.name,
     };
 
     const workspace =
@@ -809,7 +915,9 @@ export const authService = {
       } =
         await supabase.auth.signUp({
           email:
-            email.trim().toLowerCase(),
+            email
+              .trim()
+              .toLowerCase(),
 
           password,
 
@@ -825,14 +933,12 @@ export const authService = {
         });
 
       if (error) {
-
         throw new Error(
           error.message
         );
       }
 
       if (!data.user) {
-
         throw new Error(
           'Não foi possível criar o usuário.'
         );
@@ -941,8 +1047,11 @@ export const authService = {
 
     const user: User = {
       id: crypto.randomUUID(),
+
       email,
+
       name,
+
       createdAt:
         new Date().toISOString(),
     };
@@ -950,7 +1059,8 @@ export const authService = {
     const workspace: Workspace = {
       ...MOCK_WORKSPACE,
 
-      id: crypto.randomUUID(),
+      id:
+        crypto.randomUUID(),
 
       name:
         company ||
@@ -961,7 +1071,10 @@ export const authService = {
           .toLowerCase()
           .trim()
           .replace(/\s+/g, '-')
-          .replace(/[^a-z0-9-]/g, ''),
+          .replace(
+            /[^a-z0-9-]/g,
+            ''
+          ),
 
       ownerId:
         user.id,
@@ -1008,7 +1121,6 @@ export const authService = {
         });
 
       if (error) {
-
         throw new Error(
           error.message
         );
@@ -1024,7 +1136,8 @@ export const authService = {
     const googleUser: User = {
       ...MOCK_USER,
 
-      id: 'usr_google_01',
+      id:
+        'usr_google_01',
 
       email:
         'usuario.google@stalmind.com',
@@ -1035,9 +1148,7 @@ export const authService = {
 
     localStorage.setItem(
       SESSION_KEY,
-      JSON.stringify(
-        googleUser
-      )
+      JSON.stringify(googleUser)
     );
   },
 
@@ -1058,7 +1169,6 @@ export const authService = {
         await supabase.auth.signOut();
 
       if (error) {
-
         console.warn(
           '[Auth] Erro ao fazer logout Supabase:',
           error
@@ -1087,7 +1197,6 @@ export const authService = {
       await this.getCurrentWorkspace();
 
     if (!currentWorkspace) {
-
       throw new Error(
         'Nenhum workspace encontrado.'
       );
@@ -1174,7 +1283,6 @@ export const authService = {
           .single();
 
       if (error) {
-
         throw new Error(
           `Erro ao atualizar workspace: ${error.message}`
         );
