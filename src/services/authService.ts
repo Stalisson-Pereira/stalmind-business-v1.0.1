@@ -33,6 +33,13 @@ const MOCK_WORKSPACE: Workspace = {
 };
 
 // ============================================================
+// CONSTANTES
+// ============================================================
+
+const SESSION_KEY = 'stalmind_session';
+const WORKSPACE_KEY = 'stalmind_workspace';
+
+// ============================================================
 // MAP USER
 // ============================================================
 
@@ -65,6 +72,7 @@ function mapWorkspace(
     name: workspace.name,
     slug: workspace.slug,
     ownerId: workspace.owner_id || '',
+
     taxId: workspace.tax_id,
     address: workspace.address,
     email: workspace.email,
@@ -101,7 +109,7 @@ function mapWorkspace(
 }
 
 // ============================================================
-// AUXILIAR — VERIFICA TRIAL ATIVO
+// TRIAL — VERIFICA SE ESTÁ ATIVO
 // ============================================================
 
 function hasActiveTrial(
@@ -135,7 +143,7 @@ function hasActiveTrial(
 }
 
 // ============================================================
-// AUXILIAR — IDENTIFICA "TRIAL JÁ ATIVO"
+// TRIAL — IDENTIFICA ERRO DE TRIAL JÁ ATIVO
 // ============================================================
 
 function isTrialAlreadyActiveError(
@@ -171,6 +179,10 @@ export const authService = {
 
   async getCurrentUser(): Promise<User | null> {
 
+    // ----------------------------------------------------------
+    // SUPABASE
+    // ----------------------------------------------------------
+
     if (
       isSupabaseConfigured &&
       supabase
@@ -190,7 +202,7 @@ export const authService = {
         );
 
         localStorage.setItem(
-          'stalmind_session',
+          SESSION_KEY,
           JSON.stringify(user)
         );
 
@@ -199,7 +211,7 @@ export const authService = {
       } catch (error) {
 
         console.warn(
-          'Erro ao obter sessão Supabase:',
+          '[Auth] Erro ao obter sessão Supabase:',
           error
         );
 
@@ -207,13 +219,13 @@ export const authService = {
       }
     }
 
-    // ========================================================
+    // ----------------------------------------------------------
     // LOCAL / DEMO
-    // ========================================================
+    // ----------------------------------------------------------
 
     const savedSession =
       localStorage.getItem(
-        'stalmind_session'
+        SESSION_KEY
       );
 
     if (savedSession) {
@@ -227,7 +239,7 @@ export const authService = {
       } catch (error) {
 
         console.error(
-          'Erro ao ler sessão local:',
+          '[Auth] Erro ao ler sessão local:',
           error
         );
       }
@@ -241,6 +253,10 @@ export const authService = {
   // ============================================================
 
   async getCurrentWorkspace(): Promise<Workspace | null> {
+
+    // ----------------------------------------------------------
+    // SUPABASE
+    // ----------------------------------------------------------
 
     if (
       isSupabaseConfigured &&
@@ -258,7 +274,7 @@ export const authService = {
         if (!user) {
 
           console.warn(
-            'Nenhum usuário autenticado para buscar workspace.'
+            '[Workspace] Nenhum usuário autenticado.'
           );
 
           return null;
@@ -275,7 +291,6 @@ export const authService = {
             workspaces (
               id,
               name,
-              owner_id,
               legal_name,
               tax_id,
               email,
@@ -310,7 +325,7 @@ export const authService = {
         if (error) {
 
           console.error(
-            'Erro ao buscar workspace do usuário:',
+            '[Workspace] Erro ao buscar workspace:',
             error
           );
 
@@ -323,7 +338,7 @@ export const authService = {
         ) {
 
           console.warn(
-            'Usuário não possui workspace associado.'
+            '[Workspace] Usuário não possui workspace associado.'
           );
 
           return null;
@@ -345,7 +360,7 @@ export const authService = {
           );
 
         localStorage.setItem(
-          'stalmind_workspace',
+          WORKSPACE_KEY,
           JSON.stringify(workspace)
         );
 
@@ -354,7 +369,7 @@ export const authService = {
       } catch (error) {
 
         console.error(
-          'Erro inesperado ao buscar workspace:',
+          '[Workspace] Erro inesperado:',
           error
         );
 
@@ -362,13 +377,13 @@ export const authService = {
       }
     }
 
-    // ========================================================
+    // ----------------------------------------------------------
     // LOCAL / DEMO
-    // ========================================================
+    // ----------------------------------------------------------
 
     const saved =
       localStorage.getItem(
-        'stalmind_workspace'
+        WORKSPACE_KEY
       );
 
     if (saved) {
@@ -382,7 +397,7 @@ export const authService = {
       } catch (error) {
 
         console.error(
-          'Erro ao ler workspace local:',
+          '[Workspace] Erro ao ler workspace local:',
           error
         );
       }
@@ -424,9 +439,9 @@ export const authService = {
       );
     }
 
-    // ========================================================
+    // ----------------------------------------------------------
     // PROTEÇÃO LOCAL
-    // ========================================================
+    // ----------------------------------------------------------
 
     const currentWorkspace =
       await this.getCurrentWorkspace();
@@ -437,30 +452,31 @@ export const authService = {
     ) {
 
       console.info(
-        '[Stalmind Trial] Trial já está ativo.'
+        '[StalMind Trial] Trial já está ativo.'
       );
 
       return false;
     }
 
-    // ========================================================
-    // RPC SUPABASE
-    // ========================================================
+    // ----------------------------------------------------------
+    // RPC
+    // ----------------------------------------------------------
 
     const {
       error,
     } = await supabase.rpc(
       'start_workspace_trial',
       {
-        target_workspace: workspaceId,
+        target_workspace:
+          workspaceId,
       }
     );
 
-    if (error) {
+    // ----------------------------------------------------------
+    // ERRO
+    // ----------------------------------------------------------
 
-      // ======================================================
-      // TRIAL JÁ ATIVO
-      // ======================================================
+    if (error) {
 
       if (
         isTrialAlreadyActiveError(
@@ -469,18 +485,14 @@ export const authService = {
       ) {
 
         console.info(
-          '[Stalmind Trial] Workspace já possui trial ativo.'
+          '[StalMind Trial] O workspace já possui um trial ativo.'
         );
 
         return false;
       }
 
-      // ======================================================
-      // ERRO REAL
-      // ======================================================
-
       console.error(
-        '[Stalmind Trial] Erro real:',
+        '[StalMind Trial] Erro real:',
         error
       );
 
@@ -490,7 +502,7 @@ export const authService = {
     }
 
     console.info(
-      '[Stalmind Trial] Trial iniciado com sucesso.'
+      '[StalMind Trial] Trial iniciado com sucesso.'
     );
 
     return true;
@@ -524,9 +536,11 @@ export const authService = {
       );
     }
 
-    // ========================================================
-    // URL PARA ONDE O USUÁRIO VOLTARÁ
-    // ========================================================
+    // ==========================================================
+    // IMPORTANTE:
+    // Este é o endereço da sua aplicação publicada na Netlify.
+    // Não precisa ter domínio próprio.
+    // ==========================================================
 
     const redirectTo =
       `${window.location.origin}/reset-password`;
@@ -538,10 +552,6 @@ export const authService = {
         redirectTo,
       }
     );
-
-    // ========================================================
-    // ENVIA E-MAIL PELO SUPABASE
-    // ========================================================
 
     const {
       error,
@@ -556,7 +566,7 @@ export const authService = {
     if (error) {
 
       console.error(
-        '[Auth] Erro ao enviar recuperação:',
+        '[Auth] Erro ao solicitar recuperação:',
         error
       );
 
@@ -566,69 +576,7 @@ export const authService = {
     }
 
     console.log(
-      '[Auth] Solicitação de recuperação enviada com sucesso.'
-    );
-  },
-
-  // ============================================================
-  // ATUALIZAR NOVA SENHA
-  // ============================================================
-
-  async updatePassword(
-    newPassword: string
-  ): Promise<void> {
-
-    if (
-      !isSupabaseConfigured ||
-      !supabase
-    ) {
-
-      throw new Error(
-        'Supabase não está configurado.'
-      );
-    }
-
-    const password =
-      newPassword.trim();
-
-    if (!password) {
-
-      throw new Error(
-        'Informe uma nova senha.'
-      );
-    }
-
-    if (password.length < 6) {
-
-      throw new Error(
-        'A nova senha deve ter pelo menos 6 caracteres.'
-      );
-    }
-
-    console.log(
-      '[Auth] Atualizando senha...'
-    );
-
-    const {
-      error,
-    } = await supabase.auth.updateUser({
-      password,
-    });
-
-    if (error) {
-
-      console.error(
-        '[Auth] Erro ao atualizar senha:',
-        error
-      );
-
-      throw new Error(
-        `Não foi possível atualizar a senha: ${error.message}`
-      );
-    }
-
-    console.log(
-      '[Auth] Senha atualizada com sucesso.'
+      '[Auth] E-mail de recuperação solicitado com sucesso.'
     );
   },
 
@@ -644,38 +592,21 @@ export const authService = {
     workspace: Workspace;
   }> {
 
+    // ----------------------------------------------------------
+    // SUPABASE
+    // ----------------------------------------------------------
+
     if (
       isSupabaseConfigured &&
       supabase
     ) {
-
-      const cleanEmail =
-        email.trim().toLowerCase();
-
-      if (!cleanEmail) {
-
-        throw new Error(
-          'Informe o e-mail.'
-        );
-      }
-
-      if (!password) {
-
-        throw new Error(
-          'Informe a senha.'
-        );
-      }
-
-      // ======================================================
-      // LOGIN SUPABASE
-      // ======================================================
 
       const {
         data,
         error,
       } =
         await supabase.auth.signInWithPassword({
-          email: cleanEmail,
+          email: email.trim().toLowerCase(),
           password,
         });
 
@@ -696,10 +627,6 @@ export const authService = {
       const user =
         mapUser(data.user);
 
-      // ======================================================
-      // BUSCAR WORKSPACE
-      // ======================================================
-
       let workspace =
         await this.getCurrentWorkspace();
 
@@ -712,9 +639,9 @@ export const authService = {
         );
       }
 
-      // ======================================================
+      // --------------------------------------------------------
       // TRIAL
-      // ======================================================
+      // --------------------------------------------------------
 
       const shouldStartTrial =
         workspace.plan === 'free' &&
@@ -729,27 +656,18 @@ export const authService = {
             workspace.id
           );
 
-          // ==================================================
-          // ATUALIZA WORKSPACE
-          // ==================================================
-
           const updatedWorkspace =
             await this.getCurrentWorkspace();
 
           if (updatedWorkspace) {
-
             workspace =
               updatedWorkspace;
           }
 
         } catch (trialError) {
 
-          // ==================================================
-          // O TRIAL NUNCA BLOQUEIA O LOGIN
-          // ==================================================
-
           console.warn(
-            '[Stalmind Trial] Não foi possível iniciar o trial. Login continuará normalmente.',
+            '[StalMind Trial] Não foi possível iniciar o trial. Login continuará normalmente.',
             trialError
           );
 
@@ -757,24 +675,23 @@ export const authService = {
             await this.getCurrentWorkspace();
 
           if (refreshedWorkspace) {
-
             workspace =
               refreshedWorkspace;
           }
         }
       }
 
-      // ======================================================
-      // SALVAR SESSÃO
-      // ======================================================
+      // --------------------------------------------------------
+      // SESSÃO
+      // --------------------------------------------------------
 
       localStorage.setItem(
-        'stalmind_session',
+        SESSION_KEY,
         JSON.stringify(user)
       );
 
       localStorage.setItem(
-        'stalmind_workspace',
+        WORKSPACE_KEY,
         JSON.stringify(workspace)
       );
 
@@ -784,9 +701,9 @@ export const authService = {
       };
     }
 
-    // ========================================================
+    // ----------------------------------------------------------
     // LOGIN DEMO
-    // ========================================================
+    // ----------------------------------------------------------
 
     const user: User = {
       ...MOCK_USER,
@@ -795,24 +712,23 @@ export const authService = {
         email ||
         MOCK_USER.email,
 
-      name:
-        email
-          ? email
-              .split('@')[0]
-              .toUpperCase()
-          : MOCK_USER.name,
+      name: email
+        ? email
+            .split('@')[0]
+            .toUpperCase()
+        : MOCK_USER.name,
     };
 
     const workspace =
       MOCK_WORKSPACE;
 
     localStorage.setItem(
-      'stalmind_session',
+      SESSION_KEY,
       JSON.stringify(user)
     );
 
     localStorage.setItem(
-      'stalmind_workspace',
+      WORKSPACE_KEY,
       JSON.stringify(workspace)
     );
 
@@ -837,41 +753,28 @@ export const authService = {
     emailConfirmationRequired?: boolean;
   }> {
 
+    // ----------------------------------------------------------
+    // SUPABASE
+    // ----------------------------------------------------------
+
     if (
       isSupabaseConfigured &&
       supabase
     ) {
-
-      const cleanEmail =
-        email.trim().toLowerCase();
-
-      if (!cleanEmail) {
-
-        throw new Error(
-          'Informe um e-mail válido.'
-        );
-      }
-
-      if (password.length < 6) {
-
-        throw new Error(
-          'A senha deve ter pelo menos 6 caracteres.'
-        );
-      }
-
-      // ======================================================
-      // CRIAR USUÁRIO
-      // ======================================================
 
       const {
         data,
         error,
       } =
         await supabase.auth.signUp({
-          email: cleanEmail,
+          email:
+            email.trim().toLowerCase(),
+
           password,
 
           options: {
+            emailRedirectTo:
+              `${window.location.origin}/`,
             data: {
               full_name: name,
               company_name: company,
@@ -896,11 +799,15 @@ export const authService = {
       const user =
         mapUser(data.user);
 
-      // ======================================================
-      // CONFIRMAÇÃO DE E-MAIL
-      // ======================================================
+      // --------------------------------------------------------
+      // CONFIRMAÇÃO DE EMAIL
+      // --------------------------------------------------------
 
       if (!data.session) {
+
+        console.info(
+          '[Auth] Cadastro criado. Aguardando confirmação de e-mail.'
+        );
 
         return {
           user,
@@ -909,9 +816,9 @@ export const authService = {
         };
       }
 
-      // ======================================================
-      // BUSCAR WORKSPACE
-      // ======================================================
+      // --------------------------------------------------------
+      // WORKSPACE
+      // --------------------------------------------------------
 
       let workspace =
         await this.getCurrentWorkspace();
@@ -923,9 +830,9 @@ export const authService = {
         );
       }
 
-      // ======================================================
+      // --------------------------------------------------------
       // TRIAL
-      // ======================================================
+      // --------------------------------------------------------
 
       const shouldStartTrial =
         workspace.plan === 'free' &&
@@ -944,7 +851,6 @@ export const authService = {
             await this.getCurrentWorkspace();
 
           if (updatedWorkspace) {
-
             workspace =
               updatedWorkspace;
           }
@@ -952,7 +858,7 @@ export const authService = {
         } catch (trialError) {
 
           console.warn(
-            '[Stalmind Trial] Trial não iniciado durante registro. Cadastro continuará normalmente.',
+            '[StalMind Trial] Trial não iniciado durante registro. Cadastro continuará normalmente.',
             trialError
           );
 
@@ -960,24 +866,23 @@ export const authService = {
             await this.getCurrentWorkspace();
 
           if (refreshedWorkspace) {
-
             workspace =
               refreshedWorkspace;
           }
         }
       }
 
-      // ======================================================
-      // SALVAR SESSÃO
-      // ======================================================
+      // --------------------------------------------------------
+      // SESSÃO
+      // --------------------------------------------------------
 
       localStorage.setItem(
-        'stalmind_session',
+        SESSION_KEY,
         JSON.stringify(user)
       );
 
       localStorage.setItem(
-        'stalmind_workspace',
+        WORKSPACE_KEY,
         JSON.stringify(workspace)
       );
 
@@ -988,9 +893,9 @@ export const authService = {
       };
     }
 
-    // ========================================================
+    // ----------------------------------------------------------
     // REGISTRO LOCAL / DEMO
-    // ========================================================
+    // ----------------------------------------------------------
 
     const user: User = {
       id: crypto.randomUUID(),
@@ -1012,19 +917,21 @@ export const authService = {
       slug:
         company
           .toLowerCase()
-          .replace(/\s+/g, '-'),
+          .trim()
+          .replace(/\s+/g, '-')
+          .replace(/[^a-z0-9-]/g, ''),
 
       ownerId:
         user.id,
     };
 
     localStorage.setItem(
-      'stalmind_session',
+      SESSION_KEY,
       JSON.stringify(user)
     );
 
     localStorage.setItem(
-      'stalmind_workspace',
+      WORKSPACE_KEY,
       JSON.stringify(workspace)
     );
 
@@ -1068,6 +975,10 @@ export const authService = {
       return;
     }
 
+    // ----------------------------------------------------------
+    // GOOGLE DEMO
+    // ----------------------------------------------------------
+
     const googleUser: User = {
       ...MOCK_USER,
 
@@ -1081,7 +992,7 @@ export const authService = {
     };
 
     localStorage.setItem(
-      'stalmind_session',
+      SESSION_KEY,
       JSON.stringify(
         googleUser
       )
@@ -1106,19 +1017,19 @@ export const authService = {
 
       if (error) {
 
-        console.error(
-          '[Auth] Erro ao terminar sessão:',
+        console.warn(
+          '[Auth] Erro ao fazer logout Supabase:',
           error
         );
       }
     }
 
     localStorage.removeItem(
-      'stalmind_session'
+      SESSION_KEY
     );
 
     localStorage.removeItem(
-      'stalmind_workspace'
+      WORKSPACE_KEY
     );
   },
 
@@ -1145,9 +1056,9 @@ export const authService = {
       ...data,
     };
 
-    // ========================================================
+    // ----------------------------------------------------------
     // SUPABASE
-    // ========================================================
+    // ----------------------------------------------------------
 
     if (
       isSupabaseConfigured &&
@@ -1234,19 +1145,19 @@ export const authService = {
         );
 
       localStorage.setItem(
-        'stalmind_workspace',
+        WORKSPACE_KEY,
         JSON.stringify(result)
       );
 
       return result;
     }
 
-    // ========================================================
+    // ----------------------------------------------------------
     // LOCAL
-    // ========================================================
+    // ----------------------------------------------------------
 
     localStorage.setItem(
-      'stalmind_workspace',
+      WORKSPACE_KEY,
       JSON.stringify(
         updatedWorkspace
       )
