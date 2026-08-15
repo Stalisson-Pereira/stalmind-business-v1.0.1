@@ -101,7 +101,7 @@ function mapWorkspace(
 }
 
 // ============================================================
-// AUXILIAR — VERIFICA SE O TRIAL JÁ ESTÁ ATIVO
+// AUXILIAR — VERIFICA TRIAL ATIVO
 // ============================================================
 
 function hasActiveTrial(
@@ -111,7 +111,6 @@ function hasActiveTrial(
     return false;
   }
 
-  // Se existe data de término, verificamos se ainda está válida.
   if (workspace.trialEndsAt) {
     const trialEnd = new Date(
       workspace.trialEndsAt
@@ -125,8 +124,6 @@ function hasActiveTrial(
     }
   }
 
-  // Alguns bancos/projetos podem marcar o trial
-  // como iniciado antes de atualizar outras colunas.
   if (
     workspace.trialStartedAt &&
     !workspace.trialEndsAt
@@ -138,7 +135,7 @@ function hasActiveTrial(
 }
 
 // ============================================================
-// AUXILIAR — IDENTIFICA ERRO "TRIAL JÁ ATIVO"
+// AUXILIAR — IDENTIFICA "TRIAL JÁ ATIVO"
 // ============================================================
 
 function isTrialAlreadyActiveError(
@@ -154,8 +151,10 @@ function isTrialAlreadyActiveError(
       message.includes('já possui') ||
       message.includes('periodo de teste ativo') ||
       message.includes('período de teste ativo') ||
-      message.includes('trial') &&
-      message.includes('ativo')
+      (
+        message.includes('trial') &&
+        message.includes('ativo')
+      )
     )
   );
 }
@@ -220,6 +219,7 @@ export const authService = {
     if (savedSession) {
 
       try {
+
         return JSON.parse(
           savedSession
         );
@@ -275,6 +275,7 @@ export const authService = {
             workspaces (
               id,
               name,
+              owner_id,
               legal_name,
               tax_id,
               email,
@@ -424,8 +425,7 @@ export const authService = {
     }
 
     // ========================================================
-    // PRIMEIRA PROTEÇÃO
-    // Verifica o workspace atual antes da RPC.
+    // PROTEÇÃO LOCAL
     // ========================================================
 
     const currentWorkspace =
@@ -437,14 +437,14 @@ export const authService = {
     ) {
 
       console.info(
-        '[Stalmind Trial] Trial já está ativo. Nenhuma ação necessária.'
+        '[Stalmind Trial] Trial já está ativo.'
       );
 
       return false;
     }
 
     // ========================================================
-    // RPC
+    // RPC SUPABASE
     // ========================================================
 
     const {
@@ -452,18 +452,15 @@ export const authService = {
     } = await supabase.rpc(
       'start_workspace_trial',
       {
-        target_workspace:
-          workspaceId,
+        target_workspace: workspaceId,
       }
     );
 
-    // ========================================================
-    // TRIAL JÁ EXISTE
-    //
-    // Isto NÃO é um erro de login.
-    // ========================================================
-
     if (error) {
+
+      // ======================================================
+      // TRIAL JÁ ATIVO
+      // ======================================================
 
       if (
         isTrialAlreadyActiveError(
@@ -472,11 +469,15 @@ export const authService = {
       ) {
 
         console.info(
-          '[Stalmind Trial] O workspace já possui um trial ativo.'
+          '[Stalmind Trial] Workspace já possui trial ativo.'
         );
 
         return false;
       }
+
+      // ======================================================
+      // ERRO REAL
+      // ======================================================
 
       console.error(
         '[Stalmind Trial] Erro real:',
@@ -496,6 +497,142 @@ export const authService = {
   },
 
   // ============================================================
+  // RECUPERAÇÃO DE SENHA
+  // ============================================================
+
+  async resetPassword(
+    email: string
+  ): Promise<void> {
+
+    if (
+      !isSupabaseConfigured ||
+      !supabase
+    ) {
+
+      throw new Error(
+        'Supabase não está configurado.'
+      );
+    }
+
+    const cleanEmail =
+      email.trim().toLowerCase();
+
+    if (!cleanEmail) {
+
+      throw new Error(
+        'Informe um e-mail válido.'
+      );
+    }
+
+    // ========================================================
+    // URL PARA ONDE O USUÁRIO VOLTARÁ
+    // ========================================================
+
+    const redirectTo =
+      `${window.location.origin}/reset-password`;
+
+    console.log(
+      '[Auth] Solicitando recuperação de senha:',
+      {
+        email: cleanEmail,
+        redirectTo,
+      }
+    );
+
+    // ========================================================
+    // ENVIA E-MAIL PELO SUPABASE
+    // ========================================================
+
+    const {
+      error,
+    } =
+      await supabase.auth.resetPasswordForEmail(
+        cleanEmail,
+        {
+          redirectTo,
+        }
+      );
+
+    if (error) {
+
+      console.error(
+        '[Auth] Erro ao enviar recuperação:',
+        error
+      );
+
+      throw new Error(
+        `Não foi possível enviar o e-mail de recuperação: ${error.message}`
+      );
+    }
+
+    console.log(
+      '[Auth] Solicitação de recuperação enviada com sucesso.'
+    );
+  },
+
+  // ============================================================
+  // ATUALIZAR NOVA SENHA
+  // ============================================================
+
+  async updatePassword(
+    newPassword: string
+  ): Promise<void> {
+
+    if (
+      !isSupabaseConfigured ||
+      !supabase
+    ) {
+
+      throw new Error(
+        'Supabase não está configurado.'
+      );
+    }
+
+    const password =
+      newPassword.trim();
+
+    if (!password) {
+
+      throw new Error(
+        'Informe uma nova senha.'
+      );
+    }
+
+    if (password.length < 6) {
+
+      throw new Error(
+        'A nova senha deve ter pelo menos 6 caracteres.'
+      );
+    }
+
+    console.log(
+      '[Auth] Atualizando senha...'
+    );
+
+    const {
+      error,
+    } = await supabase.auth.updateUser({
+      password,
+    });
+
+    if (error) {
+
+      console.error(
+        '[Auth] Erro ao atualizar senha:',
+        error
+      );
+
+      throw new Error(
+        `Não foi possível atualizar a senha: ${error.message}`
+      );
+    }
+
+    console.log(
+      '[Auth] Senha atualizada com sucesso.'
+    );
+  },
+
+  // ============================================================
   // LOGIN
   // ============================================================
 
@@ -512,12 +649,33 @@ export const authService = {
       supabase
     ) {
 
+      const cleanEmail =
+        email.trim().toLowerCase();
+
+      if (!cleanEmail) {
+
+        throw new Error(
+          'Informe o e-mail.'
+        );
+      }
+
+      if (!password) {
+
+        throw new Error(
+          'Informe a senha.'
+        );
+      }
+
+      // ======================================================
+      // LOGIN SUPABASE
+      // ======================================================
+
       const {
         data,
         error,
       } =
         await supabase.auth.signInWithPassword({
-          email,
+          email: cleanEmail,
           password,
         });
 
@@ -537,6 +695,10 @@ export const authService = {
 
       const user =
         mapUser(data.user);
+
+      // ======================================================
+      // BUSCAR WORKSPACE
+      // ======================================================
 
       let workspace =
         await this.getCurrentWorkspace();
@@ -567,28 +729,35 @@ export const authService = {
             workspace.id
           );
 
-          // Atualiza workspace depois da RPC.
+          // ==================================================
+          // ATUALIZA WORKSPACE
+          // ==================================================
+
           const updatedWorkspace =
             await this.getCurrentWorkspace();
 
           if (updatedWorkspace) {
+
             workspace =
               updatedWorkspace;
           }
 
         } catch (trialError) {
 
-          // O trial não pode impedir o login.
+          // ==================================================
+          // O TRIAL NUNCA BLOQUEIA O LOGIN
+          // ==================================================
+
           console.warn(
             '[Stalmind Trial] Não foi possível iniciar o trial. Login continuará normalmente.',
             trialError
           );
 
-          // Tenta apenas sincronizar o workspace.
           const refreshedWorkspace =
             await this.getCurrentWorkspace();
 
           if (refreshedWorkspace) {
+
             workspace =
               refreshedWorkspace;
           }
@@ -596,7 +765,7 @@ export const authService = {
       }
 
       // ======================================================
-      // SALVA SESSÃO
+      // SALVAR SESSÃO
       // ======================================================
 
       localStorage.setItem(
@@ -626,11 +795,12 @@ export const authService = {
         email ||
         MOCK_USER.email,
 
-      name: email
-        ? email
-            .split('@')[0]
-            .toUpperCase()
-        : MOCK_USER.name,
+      name:
+        email
+          ? email
+              .split('@')[0]
+              .toUpperCase()
+          : MOCK_USER.name,
     };
 
     const workspace =
@@ -672,12 +842,33 @@ export const authService = {
       supabase
     ) {
 
+      const cleanEmail =
+        email.trim().toLowerCase();
+
+      if (!cleanEmail) {
+
+        throw new Error(
+          'Informe um e-mail válido.'
+        );
+      }
+
+      if (password.length < 6) {
+
+        throw new Error(
+          'A senha deve ter pelo menos 6 caracteres.'
+        );
+      }
+
+      // ======================================================
+      // CRIAR USUÁRIO
+      // ======================================================
+
       const {
         data,
         error,
       } =
         await supabase.auth.signUp({
-          email,
+          email: cleanEmail,
           password,
 
           options: {
@@ -706,7 +897,7 @@ export const authService = {
         mapUser(data.user);
 
       // ======================================================
-      // CONFIRMAÇÃO DE EMAIL
+      // CONFIRMAÇÃO DE E-MAIL
       // ======================================================
 
       if (!data.session) {
@@ -719,7 +910,7 @@ export const authService = {
       }
 
       // ======================================================
-      // BUSCA WORKSPACE
+      // BUSCAR WORKSPACE
       // ======================================================
 
       let workspace =
@@ -753,6 +944,7 @@ export const authService = {
             await this.getCurrentWorkspace();
 
           if (updatedWorkspace) {
+
             workspace =
               updatedWorkspace;
           }
@@ -760,7 +952,7 @@ export const authService = {
         } catch (trialError) {
 
           console.warn(
-            '[Stalmind Trial] Trial não iniciado durante registro. O cadastro continuará normalmente.',
+            '[Stalmind Trial] Trial não iniciado durante registro. Cadastro continuará normalmente.',
             trialError
           );
 
@@ -768,6 +960,7 @@ export const authService = {
             await this.getCurrentWorkspace();
 
           if (refreshedWorkspace) {
+
             workspace =
               refreshedWorkspace;
           }
@@ -775,7 +968,7 @@ export const authService = {
       }
 
       // ======================================================
-      // SALVA SESSÃO
+      // SALVAR SESSÃO
       // ======================================================
 
       localStorage.setItem(
@@ -816,11 +1009,13 @@ export const authService = {
         company ||
         `${name} Workspace`,
 
-      slug: company
-        .toLowerCase()
-        .replace(/\s+/g, '-'),
+      slug:
+        company
+          .toLowerCase()
+          .replace(/\s+/g, '-'),
 
-      ownerId: user.id,
+      ownerId:
+        user.id,
     };
 
     localStorage.setItem(
@@ -904,7 +1099,18 @@ export const authService = {
       supabase
     ) {
 
-      await supabase.auth.signOut();
+      const {
+        error,
+      } =
+        await supabase.auth.signOut();
+
+      if (error) {
+
+        console.error(
+          '[Auth] Erro ao terminar sessão:',
+          error
+        );
+      }
     }
 
     localStorage.removeItem(
