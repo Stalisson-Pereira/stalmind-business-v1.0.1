@@ -172,13 +172,11 @@ function isTrialAlreadyActiveError(
 // ============================================================
 
 export const authService = {
-
   // ============================================================
   // USUÁRIO ATUAL
   // ============================================================
 
   async getCurrentUser(): Promise<User | null> {
-
     // ----------------------------------------------------------
     // SUPABASE
     // ----------------------------------------------------------
@@ -188,7 +186,6 @@ export const authService = {
       supabase
     ) {
       try {
-
         const {
           data: { session },
         } = await supabase.auth.getSession();
@@ -207,9 +204,7 @@ export const authService = {
         );
 
         return user;
-
       } catch (error) {
-
         console.warn(
           '[Auth] Erro ao obter sessão Supabase:',
           error
@@ -229,15 +224,11 @@ export const authService = {
       );
 
     if (savedSession) {
-
       try {
-
         return JSON.parse(
           savedSession
         );
-
       } catch (error) {
-
         console.error(
           '[Auth] Erro ao ler sessão local:',
           error
@@ -253,7 +244,6 @@ export const authService = {
   // ============================================================
 
   async getCurrentWorkspace(): Promise<Workspace | null> {
-
     // ----------------------------------------------------------
     // SUPABASE
     // ----------------------------------------------------------
@@ -262,9 +252,7 @@ export const authService = {
       isSupabaseConfigured &&
       supabase
     ) {
-
       try {
-
         const {
           data: { session },
         } = await supabase.auth.getSession();
@@ -272,7 +260,6 @@ export const authService = {
         const user = session?.user;
 
         if (!user) {
-
           console.warn(
             '[Workspace] Nenhum usuário autenticado.'
           );
@@ -323,7 +310,6 @@ export const authService = {
           .maybeSingle();
 
         if (error) {
-
           console.error(
             '[Workspace] Erro ao buscar workspace:',
             error
@@ -336,7 +322,6 @@ export const authService = {
           !data ||
           !data.workspaces
         ) {
-
           console.warn(
             '[Workspace] Usuário não possui workspace associado.'
           );
@@ -365,9 +350,7 @@ export const authService = {
         );
 
         return workspace;
-
       } catch (error) {
-
         console.error(
           '[Workspace] Erro inesperado:',
           error
@@ -387,15 +370,11 @@ export const authService = {
       );
 
     if (saved) {
-
       try {
-
         return JSON.parse(
           saved
         );
-
       } catch (error) {
-
         console.error(
           '[Workspace] Erro ao ler workspace local:',
           error
@@ -413,9 +392,7 @@ export const authService = {
   async startTrial(
     workspaceId: string
   ): Promise<boolean> {
-
     if (!workspaceId) {
-
       throw new Error(
         'Workspace inválido para iniciar o trial.'
       );
@@ -433,7 +410,6 @@ export const authService = {
     } = await supabase.auth.getSession();
 
     if (!session?.user) {
-
       throw new Error(
         'Usuário não autenticado para iniciar o trial.'
       );
@@ -450,7 +426,6 @@ export const authService = {
       currentWorkspace &&
       hasActiveTrial(currentWorkspace)
     ) {
-
       console.info(
         '[StalMind Trial] Trial já está ativo.'
       );
@@ -477,13 +452,11 @@ export const authService = {
     // ----------------------------------------------------------
 
     if (error) {
-
       if (
         isTrialAlreadyActiveError(
           error
         )
       ) {
-
         console.info(
           '[StalMind Trial] O workspace já possui um trial ativo.'
         );
@@ -515,12 +488,10 @@ export const authService = {
   async resetPassword(
     email: string
   ): Promise<void> {
-
     if (
       !isSupabaseConfigured ||
       !supabase
     ) {
-
       throw new Error(
         'Supabase não está configurado.'
       );
@@ -530,54 +501,89 @@ export const authService = {
       email.trim().toLowerCase();
 
     if (!cleanEmail) {
-
       throw new Error(
         'Informe um e-mail válido.'
       );
     }
 
-    // ==========================================================
-    // IMPORTANTE:
-    // Este é o endereço da sua aplicação publicada na Netlify.
-    // Não precisa ter domínio próprio.
-    // ==========================================================
-
     const redirectTo =
       `${window.location.origin}/reset-password`;
 
     console.log(
-      '[Auth] Solicitando recuperação de senha:',
-      {
-        email: cleanEmail,
-        redirectTo,
-      }
+      '================================='
     );
 
-    const {
-      error,
-    } =
-      await supabase.auth.resetPasswordForEmail(
-        cleanEmail,
-        {
-          redirectTo,
-        }
+    console.log(
+      '[RESET PASSWORD] INÍCIO'
+    );
+
+    console.log(
+      '[RESET PASSWORD] Email:',
+      cleanEmail
+    );
+
+    console.log(
+      '[RESET PASSWORD] Origin:',
+      window.location.origin
+    );
+
+    console.log(
+      '[RESET PASSWORD] Redirect:',
+      redirectTo
+    );
+
+    console.log(
+      '================================='
+    );
+
+    try {
+      const {
+        data,
+        error,
+      } =
+        await supabase.auth.resetPasswordForEmail(
+          cleanEmail,
+          {
+            redirectTo,
+          }
+        );
+
+      console.log(
+        '[RESET PASSWORD] DATA:',
+        data
       );
 
-    if (error) {
+      console.log(
+        '[RESET PASSWORD] ERROR:',
+        error
+      );
 
+      if (error) {
+        console.error(
+          '[RESET PASSWORD] ERRO DO SUPABASE:',
+          error
+        );
+
+        throw new Error(
+          error.message ||
+          'Não foi possível enviar o e-mail de recuperação.'
+        );
+      }
+
+      console.log(
+        '[RESET PASSWORD] SOLICITAÇÃO ACEITA PELO SUPABASE'
+      );
+    } catch (error: any) {
       console.error(
-        '[Auth] Erro ao solicitar recuperação:',
+        '[RESET PASSWORD] ERRO FINAL:',
         error
       );
 
       throw new Error(
-        `Não foi possível enviar o e-mail de recuperação: ${error.message}`
+        error?.message ||
+        'Erro ao solicitar recuperação de senha.'
       );
     }
-
-    console.log(
-      '[Auth] E-mail de recuperação solicitado com sucesso.'
-    );
   },
 
   // ============================================================
@@ -591,7 +597,6 @@ export const authService = {
     user: User;
     workspace: Workspace;
   }> {
-
     // ----------------------------------------------------------
     // SUPABASE
     // ----------------------------------------------------------
@@ -600,25 +605,23 @@ export const authService = {
       isSupabaseConfigured &&
       supabase
     ) {
-
       const {
         data,
         error,
       } =
         await supabase.auth.signInWithPassword({
-          email: email.trim().toLowerCase(),
+          email:
+            email.trim().toLowerCase(),
           password,
         });
 
       if (error) {
-
         throw new Error(
           error.message
         );
       }
 
       if (!data.user) {
-
         throw new Error(
           'Usuário não encontrado após login.'
         );
@@ -631,7 +634,6 @@ export const authService = {
         await this.getCurrentWorkspace();
 
       if (!workspace) {
-
         await supabase.auth.signOut();
 
         throw new Error(
@@ -649,9 +651,7 @@ export const authService = {
         !hasActiveTrial(workspace);
 
       if (shouldStartTrial) {
-
         try {
-
           await this.startTrial(
             workspace.id
           );
@@ -663,9 +663,7 @@ export const authService = {
             workspace =
               updatedWorkspace;
           }
-
         } catch (trialError) {
-
           console.warn(
             '[StalMind Trial] Não foi possível iniciar o trial. Login continuará normalmente.',
             trialError
@@ -752,7 +750,6 @@ export const authService = {
     workspace: Workspace | null;
     emailConfirmationRequired?: boolean;
   }> {
-
     // ----------------------------------------------------------
     // SUPABASE
     // ----------------------------------------------------------
@@ -761,7 +758,6 @@ export const authService = {
       isSupabaseConfigured &&
       supabase
     ) {
-
       const {
         data,
         error,
@@ -775,6 +771,7 @@ export const authService = {
           options: {
             emailRedirectTo:
               `${window.location.origin}/`,
+
             data: {
               full_name: name,
               company_name: company,
@@ -783,14 +780,12 @@ export const authService = {
         });
 
       if (error) {
-
         throw new Error(
           error.message
         );
       }
 
       if (!data.user) {
-
         throw new Error(
           'Não foi possível criar o usuário.'
         );
@@ -804,7 +799,6 @@ export const authService = {
       // --------------------------------------------------------
 
       if (!data.session) {
-
         console.info(
           '[Auth] Cadastro criado. Aguardando confirmação de e-mail.'
         );
@@ -824,7 +818,6 @@ export const authService = {
         await this.getCurrentWorkspace();
 
       if (!workspace) {
-
         throw new Error(
           'Usuário criado, mas nenhum workspace foi associado. Verifique a trigger de criação do workspace no Supabase.'
         );
@@ -840,9 +833,7 @@ export const authService = {
         !hasActiveTrial(workspace);
 
       if (shouldStartTrial) {
-
         try {
-
           await this.startTrial(
             workspace.id
           );
@@ -854,9 +845,7 @@ export const authService = {
             workspace =
               updatedWorkspace;
           }
-
         } catch (trialError) {
-
           console.warn(
             '[StalMind Trial] Trial não iniciado durante registro. Cadastro continuará normalmente.',
             trialError
@@ -947,12 +936,10 @@ export const authService = {
   // ============================================================
 
   async loginWithGoogle(): Promise<void> {
-
     if (
       isSupabaseConfigured &&
       supabase
     ) {
-
       const {
         error,
       } =
@@ -966,7 +953,6 @@ export const authService = {
         });
 
       if (error) {
-
         throw new Error(
           error.message
         );
@@ -1004,19 +990,16 @@ export const authService = {
   // ============================================================
 
   async logout(): Promise<void> {
-
     if (
       isSupabaseConfigured &&
       supabase
     ) {
-
       const {
         error,
       } =
         await supabase.auth.signOut();
 
       if (error) {
-
         console.warn(
           '[Auth] Erro ao fazer logout Supabase:',
           error
@@ -1040,12 +1023,10 @@ export const authService = {
   async updateWorkspace(
     data: Partial<Workspace>
   ): Promise<Workspace> {
-
     const currentWorkspace =
       await this.getCurrentWorkspace();
 
     if (!currentWorkspace) {
-
       throw new Error(
         'Nenhum workspace encontrado.'
       );
@@ -1064,7 +1045,6 @@ export const authService = {
       isSupabaseConfigured &&
       supabase
     ) {
-
       const {
         data: updated,
         error,
@@ -1072,7 +1052,6 @@ export const authService = {
         await supabase
           .from('workspaces')
           .update({
-
             name:
               updatedWorkspace.name,
 
@@ -1132,7 +1111,6 @@ export const authService = {
           .single();
 
       if (error) {
-
         throw new Error(
           `Erro ao atualizar workspace: ${error.message}`
         );
