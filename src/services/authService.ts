@@ -775,16 +775,13 @@ export const authService = {
       error,
     } =
       await supabase.rpc(
-        'start_workspace_plan_trial',
+        'start_workspace_trial',
         {
           target_workspace:
             workspaceId,
 
-          target_plan:
+          selected_plan:
             plan,
-
-          trial_days:
-            TRIAL_DAYS,
         }
       );
 
