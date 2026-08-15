@@ -28,31 +28,49 @@ const MOCK_WORKSPACE: Workspace = {
   name: 'Silva Business Studio',
   slug: 'silva-studio',
   ownerId: '123e4567-e89b-12d3-a456-426614174000',
+
   taxId: '234567890',
-  address: 'Avenida da Liberdade 120, Lisboa',
-  email: 'contacto@silvastudio.pt',
-  phone: '+351 210 000 111',
+
+  address:
+    'Avenida da Liberdade 120, Lisboa',
+
+  email:
+    'contacto@silvastudio.pt',
+
+  phone:
+    '+351 210 000 111',
+
   currency: 'EUR',
+
   defaultTaxRate: 23,
 
-  // NOVO UTILIZADOR COMEÇA SEMPRE NO FREE
+  // Novo utilizador começa sempre no FREE
   plan: 'free',
 
   planBilling: undefined,
 
-  createdAt: new Date().toISOString(),
+  createdAt:
+    new Date().toISOString(),
 
-  trialStartedAt: undefined,
-  trialEndsAt: undefined,
-  trialUsed: false,
+  trialStartedAt:
+    undefined,
+
+  trialEndsAt:
+    undefined,
+
+  trialUsed:
+    false,
 };
 
 // ============================================================
 // CONSTANTES
 // ============================================================
 
-const SESSION_KEY = 'stalmind_session';
-const WORKSPACE_KEY = 'stalmind_workspace';
+const SESSION_KEY =
+  'stalmind_session';
+
+const WORKSPACE_KEY =
+  'stalmind_workspace';
 
 const TRIAL_DAYS = 14;
 
@@ -174,13 +192,16 @@ export const PLAN_LIMITS = {
 function normalizePlan(
   plan?: string | null
 ): StalmindPlan {
-  const value = String(plan || '').toLowerCase();
+  const value =
+    String(plan || '')
+      .trim()
+      .toLowerCase();
 
-  if (value === 'enterprise') {
+  if (value === PLANS.ENTERPRISE) {
     return PLANS.ENTERPRISE;
   }
 
-  if (value === 'pro') {
+  if (value === PLANS.PRO) {
     return PLANS.PRO;
   }
 
@@ -188,14 +209,29 @@ function normalizePlan(
 }
 
 // ============================================================
+// VALIDAR UUID
+// ============================================================
+
+function isValidUUID(
+  value: string
+): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value
+  );
+}
+
+// ============================================================
 // MAP USER
 // ============================================================
 
-function mapUser(user: any): User {
+function mapUser(
+  user: any
+): User {
   return {
     id: user.id,
 
-    email: user.email || '',
+    email:
+      user.email || '',
 
     name:
       user.user_metadata?.full_name ||
@@ -226,11 +262,14 @@ function mapWorkspace(
   role?: string
 ): Workspace {
   return {
-    id: workspace.id,
+    id:
+      workspace.id,
 
-    name: workspace.name,
+    name:
+      workspace.name,
 
-    slug: workspace.slug,
+    slug:
+      workspace.slug,
 
     ownerId:
       workspace.owner_id || '',
@@ -256,7 +295,9 @@ function mapWorkspace(
       ),
 
     plan:
-      normalizePlan(workspace.plan),
+      normalizePlan(
+        workspace.plan
+      ),
 
     planBilling:
       workspace.plan_billing,
@@ -322,7 +363,7 @@ function hasActiveTrial(
     ).getTime();
 
   return (
-    !Number.isNaN(trialEnd) &&
+    Number.isFinite(trialEnd) &&
     trialEnd > Date.now()
   );
 }
@@ -344,19 +385,13 @@ function hasExpiredTrial(
     ).getTime();
 
   return (
-    !Number.isNaN(trialEnd) &&
+    Number.isFinite(trialEnd) &&
     trialEnd <= Date.now()
   );
 }
 
 // ============================================================
 // PLANO EFETIVO
-// ============================================================
-//
-// Se existe trial ativo, o plano do workspace já deve representar
-// o plano escolhido.
-//
-// Se o trial terminou, o backend deve voltar para FREE.
 // ============================================================
 
 export function getEffectivePlan(
@@ -366,7 +401,9 @@ export function getEffectivePlan(
     return PLANS.FREE;
   }
 
-  return normalizePlan(workspace.plan);
+  return normalizePlan(
+    workspace.plan
+  );
 }
 
 // ============================================================
@@ -375,10 +412,14 @@ export function getEffectivePlan(
 
 export function hasPlanFeature(
   workspace: Workspace | null,
-  feature: keyof typeof PLAN_LIMITS.free
+  feature:
+    keyof typeof PLAN_LIMITS.free
 ): boolean {
+
   const plan =
-    getEffectivePlan(workspace);
+    getEffectivePlan(
+      workspace
+    );
 
   const limits =
     PLAN_LIMITS[plan];
@@ -386,11 +427,22 @@ export function hasPlanFeature(
   const value =
     limits[feature];
 
-  if (typeof value === 'boolean') {
+  if (
+    typeof value === 'boolean'
+  ) {
     return value;
   }
 
-  return value !== null && value !== 0;
+  if (
+    typeof value === 'number'
+  ) {
+    return (
+      value > 0 ||
+      value === Infinity
+    );
+  }
+
+  return false;
 }
 
 // ============================================================
@@ -404,8 +456,11 @@ export function getPlanLimit(
     | 'maxQuotesPerMonth'
     | 'aiMessagesPerMonth'
 ): number {
+
   const plan =
-    getEffectivePlan(workspace);
+    getEffectivePlan(
+      workspace
+    );
 
   return PLAN_LIMITS[plan][limit];
 }
@@ -417,9 +472,11 @@ export function getPlanLimit(
 function isTrialAlreadyUsedError(
   error: any
 ): boolean {
+
   const message =
     String(
-      error?.message || ''
+      error?.message ||
+      ''
     ).toLowerCase();
 
   return (
@@ -448,20 +505,31 @@ function isTrialAlreadyUsedError(
 function isTrialAlreadyActiveError(
   error: any
 ): boolean {
+
   const message =
     String(
-      error?.message || ''
+      error?.message ||
+      ''
     ).toLowerCase();
 
   return (
     error?.code === 'P0001' &&
     (
-      message.includes('já possui') ||
-      message.includes('ja possui') ||
+      (
+        message.includes('já possui') ||
+        message.includes('ja possui')
+      ) &&
+      message.includes('trial')
+    ) ||
+    (
       message.includes('trial') &&
-      message.includes('ativo') ||
-      message.includes('período de teste ativo') ||
-      message.includes('periodo de teste ativo')
+      message.includes('ativo')
+    ) ||
+    message.includes(
+      'período de teste ativo'
+    ) ||
+    message.includes(
+      'periodo de teste ativo'
     )
   );
 }
@@ -473,8 +541,11 @@ function isTrialAlreadyActiveError(
 function validateTrialPlan(
   plan: string
 ): StalmindPlan {
+
   const normalized =
-    normalizePlan(plan);
+    normalizePlan(
+      plan
+    );
 
   if (
     normalized !== PLANS.PRO &&
@@ -494,25 +565,31 @@ function validateTrialPlan(
 
 export const authService = {
 
-  // ============================================================
+  // ==========================================================
   // USUÁRIO ATUAL
-  // ============================================================
+  // ==========================================================
 
-  async getCurrentUser(): Promise<User | null> {
+  async getCurrentUser():
+    Promise<User | null> {
 
     if (
       isSupabaseConfigured &&
       supabase
     ) {
+
       try {
+
         const {
           data: {
             session,
           },
         } =
-          await supabase.auth.getSession();
+          await supabase.auth
+            .getSession();
 
-        if (!session?.user) {
+        if (
+          !session?.user
+        ) {
           return null;
         }
 
@@ -523,12 +600,15 @@ export const authService = {
 
         localStorage.setItem(
           SESSION_KEY,
-          JSON.stringify(user)
+          JSON.stringify(
+            user
+          )
         );
 
         return user;
 
       } catch {
+
         return null;
       }
     }
@@ -539,11 +619,15 @@ export const authService = {
       );
 
     if (savedSession) {
+
       try {
+
         return JSON.parse(
           savedSession
         );
+
       } catch {
+
         localStorage.removeItem(
           SESSION_KEY
         );
@@ -553,16 +637,18 @@ export const authService = {
     return MOCK_USER;
   },
 
-  // ============================================================
+  // ==========================================================
   // WORKSPACE ATUAL
-  // ============================================================
+  // ==========================================================
 
-  async getCurrentWorkspace(): Promise<Workspace | null> {
+  async getCurrentWorkspace():
+    Promise<Workspace | null> {
 
     if (
       isSupabaseConfigured &&
       supabase
     ) {
+
       try {
 
         const {
@@ -570,7 +656,8 @@ export const authService = {
             session,
           },
         } =
-          await supabase.auth.getSession();
+          await supabase.auth
+            .getSession();
 
         const user =
           session?.user;
@@ -623,6 +710,11 @@ export const authService = {
             .maybeSingle();
 
         if (error) {
+          console.error(
+            'Erro ao carregar workspace:',
+            error
+          );
+
           return null;
         }
 
@@ -652,12 +744,20 @@ export const authService = {
 
         localStorage.setItem(
           WORKSPACE_KEY,
-          JSON.stringify(workspace)
+          JSON.stringify(
+            workspace
+          )
         );
 
         return workspace;
 
-      } catch {
+      } catch (error) {
+
+        console.error(
+          'Erro inesperado ao carregar workspace:',
+          error
+        );
+
         return null;
       }
     }
@@ -668,11 +768,15 @@ export const authService = {
       );
 
     if (saved) {
+
       try {
+
         return JSON.parse(
           saved
         );
+
       } catch {
+
         localStorage.removeItem(
           WORKSPACE_KEY
         );
@@ -682,14 +786,20 @@ export const authService = {
     return MOCK_WORKSPACE;
   },
 
-  // ============================================================
-  // INICIAR TRIAL DE UM PLANO
-  // ============================================================
+  // ==========================================================
+  // INICIAR TRIAL
+  // ==========================================================
 
   async startTrial(
     workspaceId: string,
-    selectedPlan: 'pro' | 'enterprise'
+    selectedPlan:
+      | 'pro'
+      | 'enterprise'
   ): Promise<boolean> {
+
+    // --------------------------------------------------------
+    // VALIDAR WORKSPACE
+    // --------------------------------------------------------
 
     if (!workspaceId) {
       throw new Error(
@@ -697,10 +807,28 @@ export const authService = {
       );
     }
 
+    if (
+      !isValidUUID(
+        workspaceId
+      )
+    ) {
+      throw new Error(
+        'O ID do workspace não é um UUID válido.'
+      );
+    }
+
+    // --------------------------------------------------------
+    // VALIDAR PLANO
+    // --------------------------------------------------------
+
     const plan =
       validateTrialPlan(
         selectedPlan
       );
+
+    // --------------------------------------------------------
+    // SUPABASE
+    // --------------------------------------------------------
 
     if (
       !isSupabaseConfigured ||
@@ -709,18 +837,29 @@ export const authService = {
       return false;
     }
 
+    // --------------------------------------------------------
+    // SESSÃO
+    // --------------------------------------------------------
+
     const {
       data: {
         session,
       },
     } =
-      await supabase.auth.getSession();
+      await supabase.auth
+        .getSession();
 
-    if (!session?.user) {
+    if (
+      !session?.user
+    ) {
       throw new Error(
         'Usuário não autenticado.'
       );
     }
+
+    // --------------------------------------------------------
+    // WORKSPACE DO USUÁRIO
+    // --------------------------------------------------------
 
     const currentWorkspace =
       await this.getCurrentWorkspace();
@@ -731,9 +870,22 @@ export const authService = {
       );
     }
 
-    // ----------------------------------------------------------
-    // NÃO PERMITIR NOVO TRIAL
-    // ----------------------------------------------------------
+    // --------------------------------------------------------
+    // PROTEÇÃO CRÍTICA
+    // --------------------------------------------------------
+
+    if (
+      currentWorkspace.id !==
+      workspaceId
+    ) {
+      throw new Error(
+        'O workspace informado não corresponde ao workspace do usuário autenticado.'
+      );
+    }
+
+    // --------------------------------------------------------
+    // JÁ USOU TRIAL
+    // --------------------------------------------------------
 
     if (
       currentWorkspace.trialUsed
@@ -743,9 +895,9 @@ export const authService = {
       );
     }
 
-    // ----------------------------------------------------------
-    // NÃO PERMITIR DOIS TRIALS
-    // ----------------------------------------------------------
+    // --------------------------------------------------------
+    // TRIAL ATIVO
+    // --------------------------------------------------------
 
     if (
       hasActiveTrial(
@@ -755,21 +907,31 @@ export const authService = {
       return false;
     }
 
-    // ----------------------------------------------------------
+    // --------------------------------------------------------
+    // GARANTIR FREE ANTES DO PRIMEIRO TRIAL
+    // --------------------------------------------------------
+
+    if (
+      currentWorkspace.plan !==
+      PLANS.FREE
+    ) {
+      throw new Error(
+        'O workspace já possui um plano diferente de Free.'
+      );
+    }
+
+    // --------------------------------------------------------
     // RPC
-    // ----------------------------------------------------------
+    // --------------------------------------------------------
     //
-    // A RPC deve:
+    // A função PostgreSQL deve receber:
     //
-    // 1. confirmar que o usuário pertence ao workspace
-    // 2. confirmar que trial_used = false
-    // 3. confirmar que não existe trial ativo
-    // 4. alterar plan para o plano escolhido
-    // 5. definir trial_started_at = NOW()
-    // 6. definir trial_ends_at = NOW() + 14 dias
-    // 7. definir trial_used = true
+    // target_workspace uuid
+    // selected_plan text
     //
-    // ----------------------------------------------------------
+    // E deve validar novamente tudo no banco.
+    //
+    // --------------------------------------------------------
 
     const {
       error,
@@ -778,14 +940,23 @@ export const authService = {
         'start_workspace_trial',
         {
           target_workspace:
-            workspaceId,
+            currentWorkspace.id,
 
           selected_plan:
             plan,
         }
       );
 
+    // --------------------------------------------------------
+    // ERRO RPC
+    // --------------------------------------------------------
+
     if (error) {
+
+      console.error(
+        'Erro start_workspace_trial:',
+        error
+      );
 
       if (
         isTrialAlreadyActiveError(
@@ -805,17 +976,52 @@ export const authService = {
         );
       }
 
+      if (
+        error.code === '42501'
+      ) {
+        throw new Error(
+          'Você não possui permissão para iniciar o período de teste deste workspace.'
+        );
+      }
+
+      if (
+        error.code === 'PGRST202'
+      ) {
+        throw new Error(
+          'A função start_workspace_trial não foi encontrada no Supabase ou seus parâmetros não correspondem à função criada no banco.'
+        );
+      }
+
       throw new Error(
         `Não foi possível iniciar o período de teste: ${error.message}`
+      );
+    }
+
+    // --------------------------------------------------------
+    // RECARREGAR WORKSPACE
+    // --------------------------------------------------------
+
+    const updatedWorkspace =
+      await this.getCurrentWorkspace();
+
+    if (
+      updatedWorkspace
+    ) {
+
+      localStorage.setItem(
+        WORKSPACE_KEY,
+        JSON.stringify(
+          updatedWorkspace
+        )
       );
     }
 
     return true;
   },
 
-  // ============================================================
+  // ==========================================================
   // ESCOLHER PLANO E INICIAR TRIAL
-  // ============================================================
+  // ==========================================================
 
   async selectPlan(
     selectedPlan:
@@ -837,19 +1043,27 @@ export const authService = {
       );
     }
 
-    // ----------------------------------------------------------
-    // FREE
-    // ----------------------------------------------------------
+    // --------------------------------------------------------
+    // PRIMEIRO TRIAL
+    // --------------------------------------------------------
 
     if (
-      workspace.plan === PLANS.FREE &&
+      workspace.plan ===
+        PLANS.FREE &&
       workspace.trialUsed === false
     ) {
 
-      await this.startTrial(
-        workspace.id,
-        plan
-      );
+      const started =
+        await this.startTrial(
+          workspace.id,
+          plan
+        );
+
+      if (!started) {
+        throw new Error(
+          'Não foi possível iniciar o período de teste.'
+        );
+      }
 
       const updated =
         await this.getCurrentWorkspace();
@@ -863,9 +1077,9 @@ export const authService = {
       return updated;
     }
 
-    // ----------------------------------------------------------
-    // TRIAL JÁ USADO
-    // ----------------------------------------------------------
+    // --------------------------------------------------------
+    // TRIAL JÁ UTILIZADO
+    // --------------------------------------------------------
 
     if (
       workspace.trialUsed
@@ -875,30 +1089,21 @@ export const authService = {
       );
     }
 
-    // ----------------------------------------------------------
+    // --------------------------------------------------------
     // JÁ POSSUI PLANO
-    // ----------------------------------------------------------
+    // --------------------------------------------------------
 
     throw new Error(
-      'Não é possível alterar o plano desta forma. Utilize o processo de pagamento.'
+      `Não é possível iniciar o plano ${plan} desta forma. Utilize o processo de pagamento.`
     );
   },
 
-  // ============================================================
+  // ==========================================================
   // EXPIRAÇÃO DO TRIAL
-  // ============================================================
-  //
-  // Esta função é apenas uma sincronização.
-  //
-  // A segurança REAL deve estar no banco/RPC.
-  //
-  // Quando o trial termina:
-  //
-  // Pro/Enterprise -> Free
-  //
-  // ------------------------------------------------------------
+  // ==========================================================
 
-  async syncTrialStatus(): Promise<Workspace | null> {
+  async syncTrialStatus():
+    Promise<Workspace | null> {
 
     const workspace =
       await this.getCurrentWorkspace();
@@ -916,7 +1121,8 @@ export const authService = {
     }
 
     if (
-      workspace.plan === PLANS.FREE
+      workspace.plan ===
+      PLANS.FREE
     ) {
       return workspace;
     }
@@ -926,6 +1132,16 @@ export const authService = {
       !supabase
     ) {
       return workspace;
+    }
+
+    if (
+      !isValidUUID(
+        workspace.id
+      )
+    ) {
+      throw new Error(
+        'O ID do workspace não é um UUID válido.'
+      );
     }
 
     const {
@@ -940,6 +1156,28 @@ export const authService = {
       );
 
     if (error) {
+
+      console.error(
+        'Erro expire_workspace_trial:',
+        error
+      );
+
+      if (
+        error.code === '42501'
+      ) {
+        throw new Error(
+          'Você não possui permissão para finalizar o período de teste deste workspace.'
+        );
+      }
+
+      if (
+        error.code === 'PGRST202'
+      ) {
+        throw new Error(
+          'A função expire_workspace_trial não foi encontrada no Supabase.'
+        );
+      }
+
       throw new Error(
         `Não foi possível finalizar o período de teste: ${error.message}`
       );
@@ -948,12 +1186,22 @@ export const authService = {
     const updated =
       await this.getCurrentWorkspace();
 
+    if (updated) {
+
+      localStorage.setItem(
+        WORKSPACE_KEY,
+        JSON.stringify(
+          updated
+        )
+      );
+    }
+
     return updated;
   },
 
-  // ============================================================
+  // ==========================================================
   // RECUPERAÇÃO DE SENHA
-  // ============================================================
+  // ==========================================================
 
   async resetPassword(
     email: string
@@ -1001,9 +1249,9 @@ export const authService = {
     }
   },
 
-  // ============================================================
+  // ==========================================================
   // LOGIN
-  // ============================================================
+  // ==========================================================
 
   async login(
     email: string,
@@ -1054,33 +1302,38 @@ export const authService = {
 
       if (!workspace) {
 
-        await supabase.auth.signOut();
+        await supabase.auth
+          .signOut();
 
         throw new Error(
           'Este usuário não possui um workspace associado.'
         );
       }
 
-      // --------------------------------------------------------
-      // VERIFICAR TRIAL EXPIRADO
-      // --------------------------------------------------------
+      // ------------------------------------------------------
+      // SINCRONIZAR TRIAL
+      // ------------------------------------------------------
 
       workspace =
         await this.syncTrialStatus() ||
         workspace;
 
-      // --------------------------------------------------------
+      // ------------------------------------------------------
       // SESSÃO
-      // --------------------------------------------------------
+      // ------------------------------------------------------
 
       localStorage.setItem(
         SESSION_KEY,
-        JSON.stringify(user)
+        JSON.stringify(
+          user
+        )
       );
 
       localStorage.setItem(
         WORKSPACE_KEY,
-        JSON.stringify(workspace)
+        JSON.stringify(
+          workspace
+        )
       );
 
       return {
@@ -1089,9 +1342,9 @@ export const authService = {
       };
     }
 
-    // ----------------------------------------------------------
+    // ========================================================
     // LOGIN DEMO
-    // ----------------------------------------------------------
+    // ========================================================
 
     const user: User = {
       ...MOCK_USER,
@@ -1113,12 +1366,16 @@ export const authService = {
 
     localStorage.setItem(
       SESSION_KEY,
-      JSON.stringify(user)
+      JSON.stringify(
+        user
+      )
     );
 
     localStorage.setItem(
       WORKSPACE_KEY,
-      JSON.stringify(workspace)
+      JSON.stringify(
+        workspace
+      )
     );
 
     return {
@@ -1127,9 +1384,9 @@ export const authService = {
     };
   },
 
-  // ============================================================
+  // ==========================================================
   // REGISTRO
-  // ============================================================
+  // ==========================================================
 
   async register(
     name: string,
@@ -1147,28 +1404,35 @@ export const authService = {
       supabase
     ) {
 
+      const cleanEmail =
+        email
+          .trim()
+          .toLowerCase();
+
       const {
         data,
         error,
       } =
-        await supabase.auth.signUp({
-          email:
-            email
-              .trim()
-              .toLowerCase(),
+        await supabase.auth
+          .signUp({
+            email:
+              cleanEmail,
 
-          password,
+            password,
 
-          options: {
-            emailRedirectTo:
-              `${window.location.origin}/`,
+            options: {
+              emailRedirectTo:
+                `${window.location.origin}/`,
 
-            data: {
-              full_name: name,
-              company_name: company,
+              data: {
+                full_name:
+                  name,
+
+                company_name:
+                  company,
+              },
             },
-          },
-        });
+          });
 
       if (error) {
         throw new Error(
@@ -1187,22 +1451,23 @@ export const authService = {
           data.user
         );
 
-      // --------------------------------------------------------
+      // ------------------------------------------------------
       // CONFIRMAÇÃO DE EMAIL
-      // --------------------------------------------------------
+      // ------------------------------------------------------
 
       if (!data.session) {
 
         return {
           user,
           workspace: null,
-          emailConfirmationRequired: true,
+          emailConfirmationRequired:
+            true,
         };
       }
 
-      // --------------------------------------------------------
+      // ------------------------------------------------------
       // WORKSPACE
-      // --------------------------------------------------------
+      // ------------------------------------------------------
 
       const workspace =
         await this.getCurrentWorkspace();
@@ -1214,39 +1479,35 @@ export const authService = {
         );
       }
 
-      // --------------------------------------------------------
-      // IMPORTANTE
-      // --------------------------------------------------------
-      //
-      // NÃO INICIAMOS TRIAL AQUI.
-      //
-      // O usuário começa em FREE.
-      //
-      // O trial só começa quando selecionar
-      // explicitamente Pro ou Enterprise.
-      //
-      // --------------------------------------------------------
+      // ------------------------------------------------------
+      // NOVO USUÁRIO COMEÇA FREE
+      // ------------------------------------------------------
 
       localStorage.setItem(
         SESSION_KEY,
-        JSON.stringify(user)
+        JSON.stringify(
+          user
+        )
       );
 
       localStorage.setItem(
         WORKSPACE_KEY,
-        JSON.stringify(workspace)
+        JSON.stringify(
+          workspace
+        )
       );
 
       return {
         user,
         workspace,
-        emailConfirmationRequired: false,
+        emailConfirmationRequired:
+          false,
       };
     }
 
-    // ----------------------------------------------------------
+    // ========================================================
     // REGISTRO LOCAL / DEMO
-    // ----------------------------------------------------------
+    // ========================================================
 
     const user: User = {
       id:
@@ -1261,10 +1522,16 @@ export const authService = {
     };
 
     const slug =
-      (company || `${name} Workspace`)
+      (
+        company ||
+        `${name} Workspace`
+      )
         .toLowerCase()
         .trim()
-        .replace(/\s+/g, '-')
+        .replace(
+          /\s+/g,
+          '-'
+        )
         .replace(
           /[^a-z0-9-]/g,
           ''
@@ -1285,7 +1552,6 @@ export const authService = {
       ownerId:
         user.id,
 
-      // SEMPRE FREE
       plan:
         PLANS.FREE,
 
@@ -1301,26 +1567,32 @@ export const authService = {
 
     localStorage.setItem(
       SESSION_KEY,
-      JSON.stringify(user)
+      JSON.stringify(
+        user
+      )
     );
 
     localStorage.setItem(
       WORKSPACE_KEY,
-      JSON.stringify(workspace)
+      JSON.stringify(
+        workspace
+      )
     );
 
     return {
       user,
       workspace,
-      emailConfirmationRequired: false,
+      emailConfirmationRequired:
+        false,
     };
   },
 
-  // ============================================================
+  // ==========================================================
   // GOOGLE OAUTH
-  // ============================================================
+  // ==========================================================
 
-  async loginWithGoogle(): Promise<void> {
+  async loginWithGoogle():
+    Promise<void> {
 
     if (
       isSupabaseConfigured &&
@@ -1332,7 +1604,8 @@ export const authService = {
       } =
         await supabase.auth
           .signInWithOAuth({
-            provider: 'google',
+            provider:
+              'google',
 
             options: {
               redirectTo:
@@ -1349,15 +1622,15 @@ export const authService = {
       return;
     }
 
-    // ----------------------------------------------------------
+    // --------------------------------------------------------
     // GOOGLE DEMO
-    // ----------------------------------------------------------
+    // --------------------------------------------------------
 
     const googleUser: User = {
       ...MOCK_USER,
 
       id:
-        'usr_google_01',
+        '123e4567-e89b-12d3-a456-426614174001',
 
       email:
         'usuario.google@stalmind.com',
@@ -1374,11 +1647,12 @@ export const authService = {
     );
   },
 
-  // ============================================================
+  // ==========================================================
   // LOGOUT
-  // ============================================================
+  // ==========================================================
 
-  async logout(): Promise<void> {
+  async logout():
+    Promise<void> {
 
     if (
       isSupabaseConfigured &&
@@ -1407,9 +1681,9 @@ export const authService = {
     );
   },
 
-  // ============================================================
+  // ==========================================================
   // ATUALIZAR WORKSPACE
-  // ============================================================
+  // ==========================================================
 
   async updateWorkspace(
     data: Partial<Workspace>
@@ -1424,25 +1698,28 @@ export const authService = {
       );
     }
 
-    const updatedWorkspace: Workspace = {
-      ...currentWorkspace,
-      ...data,
-    };
+    // --------------------------------------------------------
+    // PROTEGER CAMPOS DO SISTEMA
+    // --------------------------------------------------------
 
-    // ----------------------------------------------------------
-    // PROTEGER PLANO
-    // ----------------------------------------------------------
-    //
-    // Não permitir que updateWorkspace seja utilizado
-    // para transformar Free em Pro/Enterprise.
-    //
-    // A alteração de plano deve acontecer através de:
-    //
-    // selectPlan()
-    // ou
-    // processo de pagamento.
-    //
-    // ----------------------------------------------------------
+    if (
+      data.id &&
+      data.id !== currentWorkspace.id
+    ) {
+      throw new Error(
+        'Não é permitido alterar o ID do workspace.'
+      );
+    }
+
+    if (
+      data.ownerId &&
+      data.ownerId !==
+        currentWorkspace.ownerId
+    ) {
+      throw new Error(
+        'Não é permitido alterar o proprietário do workspace por este método.'
+      );
+    }
 
     if (
       data.plan &&
@@ -1453,11 +1730,50 @@ export const authService = {
           currentWorkspace.plan
         )
     ) {
-
       throw new Error(
         'A alteração de plano deve ser realizada através do processo de seleção de plano ou pagamento.'
       );
     }
+
+    if (
+      data.trialUsed !== undefined &&
+      data.trialUsed !==
+        currentWorkspace.trialUsed
+    ) {
+      throw new Error(
+        'O status do período de teste só pode ser alterado pelo backend.'
+      );
+    }
+
+    if (
+      data.trialStartedAt !== undefined &&
+      data.trialStartedAt !==
+        currentWorkspace.trialStartedAt
+    ) {
+      throw new Error(
+        'A data de início do trial só pode ser alterada pelo backend.'
+      );
+    }
+
+    if (
+      data.trialEndsAt !== undefined &&
+      data.trialEndsAt !==
+        currentWorkspace.trialEndsAt
+    ) {
+      throw new Error(
+        'A data de término do trial só pode ser alterada pelo backend.'
+      );
+    }
+
+    const updatedWorkspace:
+      Workspace = {
+        ...currentWorkspace,
+        ...data,
+      };
+
+    // ========================================================
+    // SUPABASE
+    // ========================================================
 
     if (
       isSupabaseConfigured &&
@@ -1531,6 +1847,12 @@ export const authService = {
           .single();
 
       if (error) {
+
+        console.error(
+          'Erro ao atualizar workspace:',
+          error
+        );
+
         throw new Error(
           `Erro ao atualizar workspace: ${error.message}`
         );
@@ -1544,15 +1866,17 @@ export const authService = {
 
       localStorage.setItem(
         WORKSPACE_KEY,
-        JSON.stringify(result)
+        JSON.stringify(
+          result
+        )
       );
 
       return result;
     }
 
-    // ----------------------------------------------------------
-    // LOCAL
-    // ----------------------------------------------------------
+    // ========================================================
+    // LOCAL / DEMO
+    // ========================================================
 
     localStorage.setItem(
       WORKSPACE_KEY,
