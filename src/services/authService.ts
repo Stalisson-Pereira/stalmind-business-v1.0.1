@@ -62,17 +62,13 @@ function mapUser(user: any): User {
       user.email?.split('@')[0] ||
       'Usuário StalMind',
 
-    avatarUrl:
-      user.user_metadata?.avatar_url,
+    avatarUrl: user.user_metadata?.avatar_url,
 
-    phone:
-      user.user_metadata?.phone,
+    phone: user.user_metadata?.phone,
 
-    jobTitle:
-      user.user_metadata?.job_title,
+    jobTitle: user.user_metadata?.job_title,
 
-    createdAt:
-      user.created_at,
+    createdAt: user.created_at,
   };
 }
 
@@ -91,72 +87,51 @@ function mapWorkspace(
 
     slug: workspace.slug,
 
-    ownerId:
-      workspace.owner_id || '',
+    ownerId: workspace.owner_id || '',
 
-    taxId:
-      workspace.tax_id,
+    taxId: workspace.tax_id,
 
-    address:
-      workspace.address,
+    address: workspace.address,
 
-    email:
-      workspace.email,
+    email: workspace.email,
 
-    phone:
-      workspace.phone,
+    phone: workspace.phone,
 
-    currency:
-      workspace.currency || 'EUR',
+    currency: workspace.currency || 'EUR',
 
-    defaultTaxRate:
-      Number(
-        workspace.default_tax_rate ?? 23
-      ),
+    defaultTaxRate: Number(
+      workspace.default_tax_rate ?? 23
+    ),
 
-    plan:
-      workspace.plan || 'free',
+    plan: workspace.plan || 'free',
 
-    planBilling:
-      workspace.plan_billing,
+    planBilling: workspace.plan_billing,
 
-    createdAt:
-      workspace.created_at,
+    createdAt: workspace.created_at,
 
-    legalName:
-      workspace.legal_name,
+    legalName: workspace.legal_name,
 
-    website:
-      workspace.website,
+    website: workspace.website,
 
-    city:
-      workspace.city,
+    city: workspace.city,
 
-    postalCode:
-      workspace.postal_code,
+    postalCode: workspace.postal_code,
 
-    country:
-      workspace.country,
+    country: workspace.country,
 
-    locale:
-      workspace.locale,
+    locale: workspace.locale,
 
-    timezone:
-      workspace.timezone,
+    timezone: workspace.timezone,
 
-    logoUrl:
-      workspace.logo_url,
+    logoUrl: workspace.logo_url,
 
     role,
 
-    trialStartedAt:
-      workspace.trial_started_at,
+    trialStartedAt: workspace.trial_started_at,
 
-    trialEndsAt:
-      workspace.trial_ends_at,
+    trialEndsAt: workspace.trial_ends_at,
 
-    trialUsed:
-      workspace.trial_used ?? false,
+    trialUsed: workspace.trial_used ?? false,
   } as Workspace;
 }
 
@@ -172,10 +147,9 @@ function hasActiveTrial(
   }
 
   if (workspace.trialEndsAt) {
-    const trialEnd =
-      new Date(
-        workspace.trialEndsAt
-      ).getTime();
+    const trialEnd = new Date(
+      workspace.trialEndsAt
+    ).getTime();
 
     if (
       !Number.isNaN(trialEnd) &&
@@ -202,10 +176,9 @@ function hasActiveTrial(
 function isTrialAlreadyActiveError(
   error: any
 ): boolean {
-  const message =
-    String(
-      error?.message || ''
-    ).toLowerCase();
+  const message = String(
+    error?.message || ''
+  ).toLowerCase();
 
   return (
     error?.code === 'P0001' &&
@@ -226,13 +199,11 @@ function isTrialAlreadyActiveError(
 // ============================================================
 
 export const authService = {
-
   // ============================================================
   // USUÁRIO ATUAL
   // ============================================================
 
   async getCurrentUser(): Promise<User | null> {
-
     // ----------------------------------------------------------
     // SUPABASE
     // ----------------------------------------------------------
@@ -246,15 +217,13 @@ export const authService = {
           data: {
             session,
           },
-        } =
-          await supabase.auth.getSession();
+        } = await supabase.auth.getSession();
 
         if (!session?.user) {
           return null;
         }
 
-        const user =
-          mapUser(session.user);
+        const user = mapUser(session.user);
 
         localStorage.setItem(
           SESSION_KEY,
@@ -262,7 +231,6 @@ export const authService = {
         );
 
         return user;
-
       } catch (error) {
         console.warn(
           '[Auth] Erro ao obter sessão Supabase:',
@@ -277,16 +245,13 @@ export const authService = {
     // LOCAL / DEMO
     // ----------------------------------------------------------
 
-    const savedSession =
-      localStorage.getItem(
-        SESSION_KEY
-      );
+    const savedSession = localStorage.getItem(
+      SESSION_KEY
+    );
 
     if (savedSession) {
       try {
-        return JSON.parse(
-          savedSession
-        );
+        return JSON.parse(savedSession);
       } catch (error) {
         console.error(
           '[Auth] Erro ao ler sessão local:',
@@ -303,7 +268,6 @@ export const authService = {
   // ============================================================
 
   async getCurrentWorkspace(): Promise<Workspace | null> {
-
     // ----------------------------------------------------------
     // SUPABASE
     // ----------------------------------------------------------
@@ -313,16 +277,13 @@ export const authService = {
       supabase
     ) {
       try {
-
         const {
           data: {
             session,
           },
-        } =
-          await supabase.auth.getSession();
+        } = await supabase.auth.getSession();
 
-        const user =
-          session?.user;
+        const user = session?.user;
 
         if (!user) {
           console.warn(
@@ -335,45 +296,44 @@ export const authService = {
         const {
           data,
           error,
-        } =
-          await supabase
-            .from('workspace_members')
-            .select(`
-              role,
-              workspace_id,
-              workspaces (
-                id,
-                name,
-                legal_name,
-                tax_id,
-                email,
-                phone,
-                website,
-                address,
-                city,
-                postal_code,
-                country,
-                currency,
-                locale,
-                timezone,
-                logo_url,
-                created_at,
-                updated_at,
-                slug,
-                default_tax_rate,
-                plan,
-                plan_billing,
-                trial_started_at,
-                trial_ends_at,
-                trial_used
-              )
-            `)
-            .eq(
-              'user_id',
-              user.id
+        } = await supabase
+          .from('workspace_members')
+          .select(`
+            role,
+            workspace_id,
+            workspaces (
+              id,
+              name,
+              legal_name,
+              tax_id,
+              email,
+              phone,
+              website,
+              address,
+              city,
+              postal_code,
+              country,
+              currency,
+              locale,
+              timezone,
+              logo_url,
+              created_at,
+              updated_at,
+              slug,
+              default_tax_rate,
+              plan,
+              plan_billing,
+              trial_started_at,
+              trial_ends_at,
+              trial_used
             )
-            .limit(1)
-            .maybeSingle();
+          `)
+          .eq(
+            'user_id',
+            user.id
+          )
+          .limit(1)
+          .maybeSingle();
 
         if (error) {
           console.error(
@@ -396,9 +356,7 @@ export const authService = {
         }
 
         const workspaceData =
-          Array.isArray(
-            data.workspaces
-          )
+          Array.isArray(data.workspaces)
             ? data.workspaces[0]
             : data.workspaces;
 
@@ -406,11 +364,10 @@ export const authService = {
           return null;
         }
 
-        const workspace =
-          mapWorkspace(
-            workspaceData,
-            data.role
-          );
+        const workspace = mapWorkspace(
+          workspaceData,
+          data.role
+        );
 
         localStorage.setItem(
           WORKSPACE_KEY,
@@ -418,9 +375,7 @@ export const authService = {
         );
 
         return workspace;
-
       } catch (error) {
-
         console.error(
           '[Workspace] Erro inesperado:',
           error
@@ -434,16 +389,13 @@ export const authService = {
     // LOCAL / DEMO
     // ----------------------------------------------------------
 
-    const saved =
-      localStorage.getItem(
-        WORKSPACE_KEY
-      );
+    const saved = localStorage.getItem(
+      WORKSPACE_KEY
+    );
 
     if (saved) {
       try {
-        return JSON.parse(
-          saved
-        );
+        return JSON.parse(saved);
       } catch (error) {
         console.error(
           '[Workspace] Erro ao ler workspace local:',
@@ -462,7 +414,6 @@ export const authService = {
   async startTrial(
     workspaceId: string
   ): Promise<boolean> {
-
     if (!workspaceId) {
       throw new Error(
         'Workspace inválido para iniciar o trial.'
@@ -480,8 +431,7 @@ export const authService = {
       data: {
         session,
       },
-    } =
-      await supabase.auth.getSession();
+    } = await supabase.auth.getSession();
 
     if (!session?.user) {
       throw new Error(
@@ -498,9 +448,7 @@ export const authService = {
 
     if (
       currentWorkspace &&
-      hasActiveTrial(
-        currentWorkspace
-      )
+      hasActiveTrial(currentWorkspace)
     ) {
       console.info(
         '[StalMind Trial] Trial já está ativo.'
@@ -515,25 +463,20 @@ export const authService = {
 
     const {
       error,
-    } =
-      await supabase.rpc(
-        'start_workspace_trial',
-        {
-          target_workspace:
-            workspaceId,
-        }
-      );
+    } = await supabase.rpc(
+      'start_workspace_trial',
+      {
+        target_workspace: workspaceId,
+      }
+    );
 
     // ----------------------------------------------------------
     // ERRO
     // ----------------------------------------------------------
 
     if (error) {
-
       if (
-        isTrialAlreadyActiveError(
-          error
-        )
+        isTrialAlreadyActiveError(error)
       ) {
         console.info(
           '[StalMind Trial] O workspace já possui um trial ativo.'
@@ -566,45 +509,19 @@ export const authService = {
   async resetPassword(
     email: string
   ): Promise<void> {
-
-    console.log(
-      '[RESET PASSWORD] ================================='
-    );
-
-    console.log(
-      '[RESET PASSWORD] INÍCIO'
-    );
-
-    // ----------------------------------------------------------
-    // VERIFICA SUPABASE
-    // ----------------------------------------------------------
-
     if (
       !isSupabaseConfigured ||
       !supabase
     ) {
-      console.error(
-        '[RESET PASSWORD] Supabase não está configurado.'
-      );
-
       throw new Error(
         'Supabase não está configurado.'
       );
     }
 
-    // ----------------------------------------------------------
-    // LIMPA EMAIL
-    // ----------------------------------------------------------
-
     const cleanEmail =
       email
         .trim()
         .toLowerCase();
-
-    console.log(
-      '[RESET PASSWORD] Email:',
-      cleanEmail
-    );
 
     if (!cleanEmail) {
       throw new Error(
@@ -612,111 +529,26 @@ export const authService = {
       );
     }
 
-    // ----------------------------------------------------------
-    // REDIRECT
-    // ----------------------------------------------------------
-
     const redirectTo =
       `${window.location.origin}/reset-password`;
 
-    console.log(
-      '[RESET PASSWORD] Origin:',
-      window.location.origin
-    );
-
-    console.log(
-      '[RESET PASSWORD] Redirect:',
-      redirectTo
-    );
-
-    console.log(
-      '[RESET PASSWORD] Supabase configurado:',
-      isSupabaseConfigured
-    );
-
-    // ----------------------------------------------------------
-    // ENVIA PEDIDO PARA SUPABASE
-    // ----------------------------------------------------------
-
     try {
-
-      console.log(
-        '[RESET PASSWORD] Chamando resetPasswordForEmail...'
-      );
-
       const {
-        data,
         error,
-      } =
-        await supabase.auth.resetPasswordForEmail(
-          cleanEmail,
-          {
-            redirectTo,
-          }
-        );
-
-      // --------------------------------------------------------
-      // RESPOSTA
-      // --------------------------------------------------------
-
-      console.log(
-        '[RESET PASSWORD] Resposta recebida.'
+      } = await supabase.auth.resetPasswordForEmail(
+        cleanEmail,
+        {
+          redirectTo,
+        }
       );
-
-      console.log(
-        '[RESET PASSWORD] DATA:',
-        data
-      );
-
-      console.log(
-        '[RESET PASSWORD] ERROR:',
-        error
-      );
-
-      // --------------------------------------------------------
-      // ERRO SUPABASE
-      // --------------------------------------------------------
 
       if (error) {
-
-        console.error(
-          '[RESET PASSWORD] ERRO DO SUPABASE:',
-          error
-        );
-
         throw new Error(
           error.message ||
           'Não foi possível enviar o e-mail de recuperação.'
         );
       }
-
-      // --------------------------------------------------------
-      // SUCESSO
-      // --------------------------------------------------------
-
-      console.log(
-        '[RESET PASSWORD] ================================='
-      );
-
-      console.log(
-        '[RESET PASSWORD] SOLICITAÇÃO ACEITA PELO SUPABASE'
-      );
-
-      console.log(
-        '[RESET PASSWORD] E-mail de recuperação solicitado com sucesso.'
-      );
-
-      console.log(
-        '[RESET PASSWORD] ================================='
-      );
-
     } catch (error: any) {
-
-      console.error(
-        '[RESET PASSWORD] ERRO FINAL:',
-        error
-      );
-
       throw new Error(
         error?.message ||
         'Erro ao solicitar recuperação de senha.'
@@ -735,7 +567,6 @@ export const authService = {
     user: User;
     workspace: Workspace;
   }> {
-
     // ----------------------------------------------------------
     // SUPABASE
     // ----------------------------------------------------------
@@ -744,19 +575,17 @@ export const authService = {
       isSupabaseConfigured &&
       supabase
     ) {
-
       const {
         data,
         error,
-      } =
-        await supabase.auth.signInWithPassword({
-          email:
-            email
-              .trim()
-              .toLowerCase(),
+      } = await supabase.auth.signInWithPassword({
+        email:
+          email
+            .trim()
+            .toLowerCase(),
 
-          password,
-        });
+        password,
+      });
 
       if (error) {
         throw new Error(
@@ -770,14 +599,12 @@ export const authService = {
         );
       }
 
-      const user =
-        mapUser(data.user);
+      const user = mapUser(data.user);
 
       let workspace =
         await this.getCurrentWorkspace();
 
       if (!workspace) {
-
         await supabase.auth.signOut();
 
         throw new Error(
@@ -795,9 +622,7 @@ export const authService = {
         !hasActiveTrial(workspace);
 
       if (shouldStartTrial) {
-
         try {
-
           await this.startTrial(
             workspace.id
           );
@@ -809,9 +634,7 @@ export const authService = {
             workspace =
               updatedWorkspace;
           }
-
         } catch (trialError) {
-
           console.warn(
             '[StalMind Trial] Não foi possível iniciar o trial. Login continuará normalmente.',
             trialError
@@ -899,7 +722,6 @@ export const authService = {
     workspace: Workspace | null;
     emailConfirmationRequired?: boolean;
   }> {
-
     // ----------------------------------------------------------
     // SUPABASE
     // ----------------------------------------------------------
@@ -908,29 +730,27 @@ export const authService = {
       isSupabaseConfigured &&
       supabase
     ) {
-
       const {
         data,
         error,
-      } =
-        await supabase.auth.signUp({
-          email:
-            email
-              .trim()
-              .toLowerCase(),
+      } = await supabase.auth.signUp({
+        email:
+          email
+            .trim()
+            .toLowerCase(),
 
-          password,
+        password,
 
-          options: {
-            emailRedirectTo:
-              `${window.location.origin}/`,
+        options: {
+          emailRedirectTo:
+            `${window.location.origin}/`,
 
-            data: {
-              full_name: name,
-              company_name: company,
-            },
+          data: {
+            full_name: name,
+            company_name: company,
           },
-        });
+        },
+      });
 
       if (error) {
         throw new Error(
@@ -952,7 +772,6 @@ export const authService = {
       // --------------------------------------------------------
 
       if (!data.session) {
-
         console.info(
           '[Auth] Cadastro criado. Aguardando confirmação de e-mail.'
         );
@@ -972,7 +791,6 @@ export const authService = {
         await this.getCurrentWorkspace();
 
       if (!workspace) {
-
         throw new Error(
           'Usuário criado, mas nenhum workspace foi associado. Verifique a trigger de criação do workspace no Supabase.'
         );
@@ -988,9 +806,7 @@ export const authService = {
         !hasActiveTrial(workspace);
 
       if (shouldStartTrial) {
-
         try {
-
           await this.startTrial(
             workspace.id
           );
@@ -1002,9 +818,7 @@ export const authService = {
             workspace =
               updatedWorkspace;
           }
-
         } catch (trialError) {
-
           console.warn(
             '[StalMind Trial] Trial não iniciado durante registro. Cadastro continuará normalmente.',
             trialError
@@ -1102,23 +916,20 @@ export const authService = {
   // ============================================================
 
   async loginWithGoogle(): Promise<void> {
-
     if (
       isSupabaseConfigured &&
       supabase
     ) {
-
       const {
         error,
-      } =
-        await supabase.auth.signInWithOAuth({
-          provider: 'google',
+      } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
 
-          options: {
-            redirectTo:
-              window.location.origin,
-          },
-        });
+        options: {
+          redirectTo:
+            window.location.origin,
+        },
+      });
 
       if (error) {
         throw new Error(
@@ -1157,16 +968,13 @@ export const authService = {
   // ============================================================
 
   async logout(): Promise<void> {
-
     if (
       isSupabaseConfigured &&
       supabase
     ) {
-
       const {
         error,
-      } =
-        await supabase.auth.signOut();
+      } = await supabase.auth.signOut();
 
       if (error) {
         console.warn(
@@ -1192,7 +1000,6 @@ export const authService = {
   async updateWorkspace(
     data: Partial<Workspace>
   ): Promise<Workspace> {
-
     const currentWorkspace =
       await this.getCurrentWorkspace();
 
@@ -1215,72 +1022,69 @@ export const authService = {
       isSupabaseConfigured &&
       supabase
     ) {
-
       const {
         data: updated,
         error,
-      } =
-        await supabase
-          .from('workspaces')
-          .update({
+      } = await supabase
+        .from('workspaces')
+        .update({
+          name:
+            updatedWorkspace.name,
 
-            name:
-              updatedWorkspace.name,
+          legal_name:
+            updatedWorkspace.legalName,
 
-            legal_name:
-              updatedWorkspace.legalName,
+          tax_id:
+            updatedWorkspace.taxId,
 
-            tax_id:
-              updatedWorkspace.taxId,
+          email:
+            updatedWorkspace.email,
 
-            email:
-              updatedWorkspace.email,
+          phone:
+            updatedWorkspace.phone,
 
-            phone:
-              updatedWorkspace.phone,
+          website:
+            updatedWorkspace.website,
 
-            website:
-              updatedWorkspace.website,
+          address:
+            updatedWorkspace.address,
 
-            address:
-              updatedWorkspace.address,
+          city:
+            updatedWorkspace.city,
 
-            city:
-              updatedWorkspace.city,
+          postal_code:
+            updatedWorkspace.postalCode,
 
-            postal_code:
-              updatedWorkspace.postalCode,
+          country:
+            updatedWorkspace.country,
 
-            country:
-              updatedWorkspace.country,
+          currency:
+            updatedWorkspace.currency,
 
-            currency:
-              updatedWorkspace.currency,
+          locale:
+            updatedWorkspace.locale,
 
-            locale:
-              updatedWorkspace.locale,
+          timezone:
+            updatedWorkspace.timezone,
 
-            timezone:
-              updatedWorkspace.timezone,
+          logo_url:
+            updatedWorkspace.logoUrl,
 
-            logo_url:
-              updatedWorkspace.logoUrl,
+          slug:
+            updatedWorkspace.slug,
 
-            slug:
-              updatedWorkspace.slug,
+          default_tax_rate:
+            updatedWorkspace.defaultTaxRate,
 
-            default_tax_rate:
-              updatedWorkspace.defaultTaxRate,
-
-            updated_at:
-              new Date().toISOString(),
-          })
-          .eq(
-            'id',
-            currentWorkspace.id
-          )
-          .select()
-          .single();
+          updated_at:
+            new Date().toISOString(),
+        })
+        .eq(
+          'id',
+          currentWorkspace.id
+        )
+        .select()
+        .single();
 
       if (error) {
         throw new Error(
@@ -1308,9 +1112,7 @@ export const authService = {
 
     localStorage.setItem(
       WORKSPACE_KEY,
-      JSON.stringify(
-        updatedWorkspace
-      )
+      JSON.stringify(updatedWorkspace)
     );
 
     return updatedWorkspace;
