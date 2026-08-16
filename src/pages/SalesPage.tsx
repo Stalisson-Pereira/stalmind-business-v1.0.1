@@ -677,14 +677,6 @@ export const SalesPage: React.FC<SalesPageProps> = ({
         );
       }
 
-      console.log(
-        'Venda criada:',
-        data,
-        customerName,
-        saleTitle,
-        saleNotes
-      );
-
       setIsNewSaleOpen(false);
 
       setSaleTitle('');
