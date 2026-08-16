@@ -19,7 +19,7 @@ import {
 
 import { useAuth } from '../contexts/AuthContext';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
-import { NotificationsPopover } from '../common/NotificationsPopover';
+import { NotificationsPopover } from '../components/common/NotificationsPopover';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
