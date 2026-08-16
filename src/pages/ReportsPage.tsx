@@ -1,12 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   BarChart2,
-  TrendingUp,
-  TrendingDown,
   DollarSign,
   Download,
-  Users,
   PieChart,
   Target,
   ArrowUpRight,
@@ -61,18 +63,21 @@ interface ExpenseCategory {
   percentage: number;
 }
 
-/**
- * Obtém uma data de objetos que podem possuir nomes diferentes
- * dependendo da versão dos tipos do projeto.
+/*
+ * ============================================================
+ * HELPERS
+ * ============================================================
  */
+
 const getFlexibleDate = (
   value: unknown
 ): Date | null => {
   if (!value) return null;
 
-  const date = value instanceof Date
-    ? value
-    : new Date(String(value));
+  const date =
+    value instanceof Date
+      ? value
+      : new Date(String(value));
 
   if (Number.isNaN(date.getTime())) {
     return null;
@@ -81,15 +86,14 @@ const getFlexibleDate = (
   return date;
 };
 
-/**
- * Obtém a data de um orçamento sem exigir que o tipo Quote
- * tenha obrigatoriamente um campo específico.
- */
-const getQuoteDate = (quote: Quote): Date | null => {
-  const raw = quote as unknown as Record<
-    string,
-    unknown
-  >;
+const getQuoteDate = (
+  quote: Quote
+): Date | null => {
+  const raw =
+    quote as unknown as Record<
+      string,
+      unknown
+    >;
 
   return getFlexibleDate(
     raw.date ??
@@ -100,48 +104,129 @@ const getQuoteDate = (quote: Quote): Date | null => {
   );
 };
 
+const getSaleDate = (
+  sale: Sale
+): Date | null => {
+  const raw =
+    sale as unknown as Record<
+      string,
+      unknown
+    >;
+
+  return getFlexibleDate(
+    raw.sale_date ??
+      raw.saleDate ??
+      raw.created_at ??
+      raw.createdAt
+  );
+};
+
+const getSaleCustomerId = (
+  sale: Sale
+): string | null => {
+  const raw =
+    sale as unknown as Record<
+      string,
+      unknown
+    >;
+
+  const value =
+    raw.customer_id ??
+    raw.customerId ??
+    null;
+
+  return value
+    ? String(value)
+    : null;
+};
+
+const getSaleTotal = (
+  sale: Sale
+): number => {
+  const raw =
+    sale as unknown as Record<
+      string,
+      unknown
+    >;
+
+  const value =
+    raw.total ??
+    0;
+
+  const number =
+    Number(value);
+
+  return Number.isFinite(number)
+    ? number
+    : 0;
+};
+
 const formatAmount = (
   amount: number,
   currencySymbol: string
 ) => {
-  return `${currencySymbol} ${amount.toLocaleString(
-    'pt-PT',
-    {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }
-  )}`;
+  return `${currencySymbol} ${Number(
+    amount || 0
+  ).toLocaleString('pt-PT', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 };
 
-const formatDate = (date: Date) => {
-  return date.toLocaleDateString('pt-PT');
+const formatDate = (
+  date: Date
+) => {
+  return date.toLocaleDateString(
+    'pt-PT'
+  );
 };
+
+/*
+ * ============================================================
+ * COMPONENT
+ * ============================================================
+ */
 
 export const ReportsPage: React.FC<
   ReportsPageProps
 > = ({ onNavigate }) => {
   const { workspace } = useAuth();
 
-  const [quotes, setQuotes] = useState<Quote[]>([]);
-  const [sales, setSales] = useState<Sale[]>([]);
-  const [transactions, setTransactions] = useState<
+  const [quotes, setQuotes] =
+    useState<Quote[]>([]);
+
+  const [
+    transactions,
+    setTransactions,
+  ] = useState<
     FinancialTransaction[]
   >([]);
-  const [customers, setCustomers] = useState<
-    Customer[]
-  >([]);
+
+  const [sales, setSales] =
+    useState<Sale[]>([]);
+
+  const [
+    customers,
+    setCustomers,
+  ] = useState<Customer[]>([]);
 
   const [loading, setLoading] =
     useState(true);
 
-  const [exportMenuOpen, setExportMenuOpen] =
-    useState(false);
+  const [
+    exportMenuOpen,
+    setExportMenuOpen,
+  ] = useState(false);
 
   const exportMenuRef =
-    useRef<HTMLDivElement | null>(null);
+    useRef<HTMLDivElement | null>(
+      null
+    );
 
-  const [timeframe, setTimeframe] =
-    useState<Timeframe>('year');
+  const [
+    timeframe,
+    setTimeframe,
+  ] = useState<Timeframe>('year');
 
   const currencySymbol =
     workspace?.currency === 'BRL'
@@ -152,7 +237,19 @@ export const ReportsPage: React.FC<
 
   /*
    * ============================================================
-   * CARREGAMENTO
+   * CARREGAMENTO DOS DADOS
+   *
+   * RECEITA:
+   *   -> sales
+   *
+   * DESPESAS:
+   *   -> financial_transactions
+   *
+   * ORÇAMENTOS:
+   *   -> quotes
+   *
+   * CLIENTES:
+   *   -> customers
    * ============================================================
    */
 
@@ -160,73 +257,145 @@ export const ReportsPage: React.FC<
     let mounted = true;
 
     const loadData = async () => {
-      if (!workspace) {
+      if (!workspace?.id) {
         setLoading(false);
         return;
       }
 
       setLoading(true);
 
+      /*
+       * Carregamos cada fonte separadamente.
+       *
+       * Isso é importante porque:
+       * se financial_transactions estiver
+       * indisponível, as vendas continuam
+       * funcionando normalmente.
+       */
+
+      let loadedQuotes: Quote[] = [];
+      let loadedTransactions: FinancialTransaction[] =
+        [];
+      let loadedSales: Sale[] = [];
+      let loadedCustomers: Customer[] = [];
+
+      /*
+       * ORÇAMENTOS
+       */
+
       try {
-        const [
-          loadedQuotes,
-          loadedTransactions,
-          loadedCustomers,
-          loadedSales,
-        ] = await Promise.all([
-          quoteService.getQuotes(workspace.id),
-          financialService.getTransactions(
+        loadedQuotes =
+          await quoteService.getQuotes(
             workspace.id
-          ),
-          customerService.getCustomers(
-            workspace.id
-          ),
-          saleService.getSales(
-            workspace.id
-          ),
-        ]);
-
-        if (!mounted) return;
-
-        setQuotes(
-          Array.isArray(loadedQuotes)
-            ? loadedQuotes
-            : []
-        );
-
-        setTransactions(
-          Array.isArray(loadedTransactions)
-            ? loadedTransactions
-            : []
-        );
-
-        setCustomers(
-          Array.isArray(loadedCustomers)
-            ? loadedCustomers
-            : []
-        );
-
-        setSales(
-          Array.isArray(loadedSales)
-            ? loadedSales
-            : []
-       );
+          );
       } catch (error) {
         console.error(
-          'Erro ao carregar dados dos relatórios:',
+          '[ReportsPage] Erro ao carregar orçamentos:',
           error
         );
-
-        if (!mounted) return;
-
-        setQuotes([]);
-        setTransactions([]);
-        setCustomers([]);
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
       }
+
+      /*
+       * VENDAS
+       *
+       * ESTA É A PRINCIPAL CORREÇÃO.
+       *
+       * A receita agora vem diretamente
+       * da tabela sales.
+       */
+
+      try {
+        loadedSales =
+          await saleService.getSales(
+            workspace.id
+          );
+
+        console.log(
+          '[ReportsPage] Vendas carregadas:',
+          loadedSales.length,
+          loadedSales
+        );
+      } catch (error) {
+        console.error(
+          '[ReportsPage] Erro ao carregar vendas:',
+          error
+        );
+      }
+
+      /*
+       * TRANSAÇÕES FINANCEIRAS
+       *
+       * Usadas principalmente para despesas.
+       *
+       * Se financial_transactions não existir,
+       * o financialService fará fallback para
+       * localStorage.
+       */
+
+      try {
+        loadedTransactions =
+          await financialService.getTransactions(
+            workspace.id
+          );
+
+        console.log(
+          '[ReportsPage] Transações financeiras:',
+          loadedTransactions.length
+        );
+      } catch (error) {
+        console.error(
+          '[ReportsPage] Erro ao carregar transações financeiras:',
+          error
+        );
+      }
+
+      /*
+       * CLIENTES
+       */
+
+      try {
+        loadedCustomers =
+          await customerService.getCustomers(
+            workspace.id
+          );
+      } catch (error) {
+        console.error(
+          '[ReportsPage] Erro ao carregar clientes:',
+          error
+        );
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      setQuotes(
+        Array.isArray(loadedQuotes)
+          ? loadedQuotes
+          : []
+      );
+
+      setTransactions(
+        Array.isArray(
+          loadedTransactions
+        )
+          ? loadedTransactions
+          : []
+      );
+
+      setSales(
+        Array.isArray(loadedSales)
+          ? loadedSales
+          : []
+      );
+
+      setCustomers(
+        Array.isArray(loadedCustomers)
+          ? loadedCustomers
+          : []
+      );
+
+      setLoading(false);
     };
 
     loadData();
@@ -234,10 +403,12 @@ export const ReportsPage: React.FC<
     return () => {
       mounted = false;
     };
-  }, [workspace]);
+  }, [workspace?.id]);
 
   /*
-   * Fecha menu de exportação ao clicar fora.
+   * ============================================================
+   * FECHAR MENU DE EXPORTAÇÃO
+   * ============================================================
    */
 
   useEffect(() => {
@@ -294,7 +465,9 @@ export const ReportsPage: React.FC<
 
     if (timeframe === 'quarter') {
       const quarterStartMonth =
-        Math.floor(now.getMonth() / 3) * 3;
+        Math.floor(
+          now.getMonth() / 3
+        ) * 3;
 
       return new Date(
         now.getFullYear(),
@@ -356,24 +529,65 @@ export const ReportsPage: React.FC<
 
   /*
    * ============================================================
-   * DADOS FILTRADOS
+   * VENDAS FILTRADAS
+   * ============================================================
+   */
+
+  const filteredSales = useMemo(() => {
+    return sales.filter((sale) => {
+      /*
+       * Apenas vendas confirmadas entram
+       * no faturamento.
+       *
+       * cancelled e refunded não entram.
+       */
+
+      if (
+        sale.status !== 'confirmed'
+      ) {
+        return false;
+      }
+
+      const date =
+        getSaleDate(sale);
+
+      return isDateInPeriod(date);
+    });
+  }, [
+    sales,
+    timeframe,
+    periodStart,
+  ]);
+
+  /*
+   * ============================================================
+   * TRANSAÇÕES FILTRADAS
    * ============================================================
    */
 
   const filteredTransactions =
     useMemo(() => {
-      return transactions.filter((transaction) => {
-        const date = getFlexibleDate(
-          transaction.date
-        );
+      return transactions.filter(
+        (transaction) => {
+          const date =
+            getFlexibleDate(
+              transaction.date
+            );
 
-        return isDateInPeriod(date);
-      });
+          return isDateInPeriod(date);
+        }
+      );
     }, [
       transactions,
       timeframe,
       periodStart,
     ]);
+
+  /*
+   * ============================================================
+   * ORÇAMENTOS FILTRADOS
+   * ============================================================
+   */
 
   const filteredQuotes = useMemo(() => {
     return quotes.filter((quote) => {
@@ -381,7 +595,8 @@ export const ReportsPage: React.FC<
         return true;
       }
 
-      const date = getQuoteDate(quote);
+      const date =
+        getQuoteDate(quote);
 
       return isDateInPeriod(date);
     });
@@ -393,51 +608,75 @@ export const ReportsPage: React.FC<
 
   /*
    * ============================================================
-   * FINANCEIRO
+   * RECEITA
+   *
+   * CORREÇÃO PRINCIPAL:
+   *
+   * Antes:
+   *   financial_transactions
+   *
+   * Agora:
+   *   sales.total
+   *
+   * Exemplo:
+   *
+   * Venda 1 = €10
+   * Venda 2 = €80
+   * Venda 3 = €60
+   *
+   * Receita = €150
    * ============================================================
    */
 
-  const incomeTransactions =
-    useMemo(() => {
-      return filteredTransactions.filter(
-        (transaction) =>
-          transaction.type === 'income'
-      );
-    }, [filteredTransactions]);
+  const totalIncome = useMemo(() => {
+    return filteredSales.reduce(
+      (sum, sale) => {
+        return (
+          sum +
+          getSaleTotal(sale)
+        );
+      },
+      0
+    );
+  }, [filteredSales]);
+
+  /*
+   * ============================================================
+   * DESPESAS
+   * ============================================================
+   */
 
   const expenseTransactions =
     useMemo(() => {
       return filteredTransactions.filter(
         (transaction) =>
-          transaction.type === 'expense'
+          transaction.type ===
+          'expense'
       );
     }, [filteredTransactions]);
-
-  const totalIncome = useMemo(() => {
-    return incomeTransactions
-      .filter(
-        (transaction) =>
-          transaction.status === 'paid'
-      )
-      .reduce(
-        (sum, transaction) =>
-          sum + Number(transaction.amount || 0),
-        0
-      );
-  }, [incomeTransactions]);
 
   const totalExpenses = useMemo(() => {
     return expenseTransactions
       .filter(
         (transaction) =>
-          transaction.status === 'paid'
+          transaction.status ===
+          'paid'
       )
       .reduce(
         (sum, transaction) =>
-          sum + Number(transaction.amount || 0),
+          sum +
+          Number(
+            transaction.amount || 0
+          ),
         0
       );
   }, [expenseTransactions]);
+
+  /*
+   * ============================================================
+   * LUCRO
+   * ============================================================
+   */
 
   const netProfit =
     totalIncome - totalExpenses;
@@ -445,7 +684,9 @@ export const ReportsPage: React.FC<
   const profitMargin =
     totalIncome > 0
       ? Math.round(
-          (netProfit / totalIncome) * 100
+          (netProfit /
+            totalIncome) *
+            100
         )
       : 0;
 
@@ -459,13 +700,17 @@ export const ReportsPage: React.FC<
     useMemo(() => {
       return filteredQuotes.filter(
         (quote) =>
-          quote.status === 'accepted'
+          quote.status ===
+          'accepted'
       );
     }, [filteredQuotes]);
 
   const conversionRate =
     useMemo(() => {
-      if (filteredQuotes.length === 0) {
+      if (
+        filteredQuotes.length ===
+        0
+      ) {
         return 0;
       }
 
@@ -483,7 +728,10 @@ export const ReportsPage: React.FC<
     useMemo(() => {
       return filteredQuotes.reduce(
         (sum, quote) =>
-          sum + Number(quote.total || 0),
+          sum +
+          Number(
+            quote.total || 0
+          ),
         0
       );
     }, [filteredQuotes]);
@@ -492,7 +740,10 @@ export const ReportsPage: React.FC<
     useMemo(() => {
       return acceptedQuotes.reduce(
         (sum, quote) =>
-          sum + Number(quote.total || 0),
+          sum +
+          Number(
+            quote.total || 0
+          ),
         0
       );
     }, [acceptedQuotes]);
@@ -504,56 +755,70 @@ export const ReportsPage: React.FC<
    */
 
   const expensesByCategory =
-    useMemo<ExpenseCategory[]>(() => {
-      const map: Record<
-        string,
-        number
-      > = {};
+    useMemo<ExpenseCategory[]>(
+      () => {
+        const map: Record<
+          string,
+          number
+        > = {};
 
-      expenseTransactions
-        .filter(
-          (transaction) =>
-            transaction.status === 'paid'
-        )
-        .forEach((transaction) => {
-          const category =
-            transaction.category ||
-            'Outros';
+        expenseTransactions
+          .filter(
+            (transaction) =>
+              transaction.status ===
+              'paid'
+          )
+          .forEach(
+            (transaction) => {
+              const category =
+                transaction.category ||
+                'Outros';
 
-          map[category] =
-            (map[category] || 0) +
-            Number(
-              transaction.amount || 0
-            );
-        });
+              map[category] =
+                (map[category] || 0) +
+                Number(
+                  transaction.amount ||
+                    0
+                );
+            }
+          );
 
-      return Object.entries(map)
-        .map(
-          ([category, amount]) => ({
-            category,
-            amount,
-            percentage:
-              totalExpenses > 0
-                ? Math.round(
-                    (amount /
-                      totalExpenses) *
-                      100
-                  )
-                : 0,
-          })
-        )
-        .sort(
-          (a, b) =>
-            b.amount - a.amount
-        );
-    }, [
-      expenseTransactions,
-      totalExpenses,
-    ]);
+        return Object.entries(map)
+          .map(
+            ([
+              category,
+              amount,
+            ]) => ({
+              category,
+              amount,
+              percentage:
+                totalExpenses > 0
+                  ? Math.round(
+                      (amount /
+                        totalExpenses) *
+                        100
+                    )
+                  : 0,
+            })
+          )
+          .sort(
+            (a, b) =>
+              b.amount -
+              a.amount
+          );
+      },
+      [
+        expenseTransactions,
+        totalExpenses,
+      ]
+    );
 
   /*
    * ============================================================
    * EVOLUÇÃO MENSAL
+   *
+   * Receita = vendas confirmadas
+   * Despesa = financial_transactions
    * ============================================================
    */
 
@@ -574,16 +839,24 @@ export const ReportsPage: React.FC<
         'Dez',
       ];
 
-      const now = new Date();
+      const now =
+        new Date();
 
-      const result: MonthlyData[] = [];
+      const result: MonthlyData[] =
+        [];
 
-      for (let i = 5; i >= 0; i--) {
-        const date = new Date(
-          now.getFullYear(),
-          now.getMonth() - i,
-          1
-        );
+      for (
+        let i = 5;
+        i >= 0;
+        i--
+      ) {
+        const date =
+          new Date(
+            now.getFullYear(),
+            now.getMonth() -
+              i,
+            1
+          );
 
         const monthIndex =
           date.getMonth();
@@ -591,50 +864,53 @@ export const ReportsPage: React.FC<
         const year =
           date.getFullYear();
 
+        /*
+         * RECEITAS DAS VENDAS
+         */
+
         const income =
-          incomeTransactions
-            .filter(
-              (transaction) => {
-                if (
-                  transaction.status !==
-                  'paid'
-                ) {
-                  return false;
-                }
-
-                const transactionDate =
-                  getFlexibleDate(
-                    transaction.date
-                  );
-
-                if (
-                  !transactionDate
-                ) {
-                  return false;
-                }
-
-                return (
-                  transactionDate.getMonth() ===
-                    monthIndex &&
-                  transactionDate.getFullYear() ===
-                    year
+          filteredSales
+            .filter((sale) => {
+              const saleDate =
+                getSaleDate(
+                  sale
                 );
+
+              if (
+                !saleDate
+              ) {
+                return false;
               }
-            )
+
+              return (
+                saleDate.getMonth() ===
+                  monthIndex &&
+                saleDate.getFullYear() ===
+                  year
+              );
+            })
             .reduce(
-              (sum, transaction) =>
+              (
+                sum,
+                sale
+              ) =>
                 sum +
-                Number(
-                  transaction.amount ||
-                    0
+                getSaleTotal(
+                  sale
                 ),
               0
             );
 
+        /*
+         * DESPESAS
+         */
+
         const expense =
           expenseTransactions
             .filter(
-              (transaction) => {
+              (
+                transaction
+              ) => {
                 if (
                   transaction.status !==
                   'paid'
@@ -662,7 +938,10 @@ export const ReportsPage: React.FC<
               }
             )
             .reduce(
-              (sum, transaction) =>
+              (
+                sum,
+                transaction
+              ) =>
                 sum +
                 Number(
                   transaction.amount ||
@@ -673,7 +952,9 @@ export const ReportsPage: React.FC<
 
         result.push({
           month:
-            months[monthIndex],
+            months[
+              monthIndex
+            ],
           year,
           income,
           expense,
@@ -682,7 +963,7 @@ export const ReportsPage: React.FC<
 
       return result;
     }, [
-      incomeTransactions,
+      filteredSales,
       expenseTransactions,
     ]);
 
@@ -703,6 +984,8 @@ export const ReportsPage: React.FC<
   /*
    * ============================================================
    * PRINCIPAIS CLIENTES
+   *
+   * Agora calculados pelas vendas.
    * ============================================================
    */
 
@@ -713,39 +996,91 @@ export const ReportsPage: React.FC<
         TopCustomer
       > = {};
 
-      incomeTransactions
-        .filter(
-          (transaction) =>
-            transaction.status === 'paid'
-        )
-        .forEach((transaction) => {
-          const name =
-            transaction.customerOrSupplier ||
+      filteredSales.forEach(
+        (sale) => {
+          const customerId =
+            getSaleCustomerId(
+              sale
+            );
+
+          let customerName =
             'Cliente Geral';
 
-          if (!map[name]) {
-            map[name] = {
-              name,
+          if (
+            customerId
+          ) {
+            const customer =
+              customers.find(
+                (item) => {
+                  const raw =
+                    item as unknown as Record<
+                      string,
+                      unknown
+                    >;
+
+                  return (
+                    String(
+                      raw.id
+                    ) ===
+                    customerId
+                  );
+                }
+              );
+
+            if (customer) {
+              const raw =
+                customer as unknown as Record<
+                  string,
+                  unknown
+                >;
+
+              customerName =
+                String(
+                  raw.name ??
+                    raw.company ??
+                    'Cliente'
+                );
+            }
+          }
+
+          if (
+            !map[
+              customerName
+            ]
+          ) {
+            map[
+              customerName
+            ] = {
+              name: customerName,
               count: 0,
               total: 0,
             };
           }
 
-          map[name].count += 1;
+          map[
+            customerName
+          ].count += 1;
 
-          map[name].total +=
-            Number(
-              transaction.amount || 0
+          map[
+            customerName
+          ].total +=
+            getSaleTotal(
+              sale
             );
-        });
+        }
+      );
 
       return Object.values(map)
         .sort(
           (a, b) =>
-            b.total - a.total
+            b.total -
+            a.total
         )
         .slice(0, 5);
-    }, [incomeTransactions]);
+    }, [
+      filteredSales,
+      customers,
+    ]);
 
   /*
    * ============================================================
@@ -756,9 +1091,10 @@ export const ReportsPage: React.FC<
   const csvEscape = (
     value: unknown
   ) => {
-    const text = String(
-      value ?? ''
-    );
+    const text =
+      String(
+        value ?? ''
+      );
 
     return `"${text.replace(
       /"/g,
@@ -768,7 +1104,8 @@ export const ReportsPage: React.FC<
 
   const handleExportReportCSV =
     () => {
-      const lines: string[] = [];
+      const lines: string[] =
+        [];
 
       lines.push(
         'Relatório de Performance Stalmind'
@@ -782,7 +1119,9 @@ export const ReportsPage: React.FC<
 
       lines.push(
         `Data de geração,${csvEscape(
-          formatDate(new Date())
+          formatDate(
+            new Date()
+          )
         )}`
       );
 
@@ -823,6 +1162,12 @@ export const ReportsPage: React.FC<
       lines.push(
         `Total de Clientes,${csvEscape(
           customers.length
+        )}`
+      );
+
+      lines.push(
+        `Vendas Confirmadas,${csvEscape(
+          filteredSales.length
         )}`
       );
 
@@ -936,9 +1281,12 @@ export const ReportsPage: React.FC<
         lines.join('\n');
 
       const blob =
-        new Blob([csv], {
-          type: 'text/csv;charset=utf-8;',
-        });
+        new Blob(
+          [csv],
+          {
+            type: 'text/csv;charset=utf-8;',
+          }
+        );
 
       const url =
         URL.createObjectURL(
@@ -965,9 +1313,13 @@ export const ReportsPage: React.FC<
 
       link.remove();
 
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(
+        url
+      );
 
-      setExportMenuOpen(false);
+      setExportMenuOpen(
+        false
+      );
     };
 
   /*
@@ -981,7 +1333,8 @@ export const ReportsPage: React.FC<
       try {
         const doc =
           new jsPDF({
-            orientation: 'portrait',
+            orientation:
+              'portrait',
             unit: 'mm',
             format: 'a4',
           });
@@ -995,7 +1348,7 @@ export const ReportsPage: React.FC<
         const margin = 14;
 
         /*
-         * Cabeçalho
+         * CABEÇALHO
          */
 
         doc.setFont(
@@ -1055,7 +1408,7 @@ export const ReportsPage: React.FC<
         );
 
         /*
-         * Resumo
+         * RESUMO
          */
 
         autoTable(doc, {
@@ -1103,6 +1456,12 @@ export const ReportsPage: React.FC<
               ),
             ],
             [
+              'Vendas Confirmadas',
+              String(
+                filteredSales.length
+              ),
+            ],
+            [
               'Orçamentos Emitidos',
               String(
                 filteredQuotes.length
@@ -1127,7 +1486,8 @@ export const ReportsPage: React.FC<
               229,
             ],
             textColor: 255,
-            fontStyle: 'bold',
+            fontStyle:
+              'bold',
           },
           styles: {
             fontSize: 9,
@@ -1136,14 +1496,14 @@ export const ReportsPage: React.FC<
         });
 
         /*
-         * Evolução financeira
+         * EVOLUÇÃO FINANCEIRA
          */
 
         const financialTableStart =
           (
             doc as any
-          ).lastAutoTable.finalY +
-          10;
+          ).lastAutoTable
+            .finalY + 10;
 
         doc.setFont(
           'helvetica',
@@ -1160,7 +1520,8 @@ export const ReportsPage: React.FC<
 
         autoTable(doc, {
           startY:
-            financialTableStart + 4,
+            financialTableStart +
+            4,
           margin: {
             left: margin,
             right: margin,
@@ -1174,25 +1535,28 @@ export const ReportsPage: React.FC<
               'Resultado',
             ],
           ],
-          body: monthlyData.map(
-            (item) => [
-              item.month,
-              String(item.year),
-              formatAmount(
-                item.income,
-                currencySymbol
-              ),
-              formatAmount(
-                item.expense,
-                currencySymbol
-              ),
-              formatAmount(
-                item.income -
+          body:
+            monthlyData.map(
+              (item) => [
+                item.month,
+                String(
+                  item.year
+                ),
+                formatAmount(
+                  item.income,
+                  currencySymbol
+                ),
+                formatAmount(
                   item.expense,
-                currencySymbol
-              ),
-            ]
-          ),
+                  currencySymbol
+                ),
+                formatAmount(
+                  item.income -
+                    item.expense,
+                  currencySymbol
+                ),
+              ]
+            ),
           theme: 'striped',
           headStyles: {
             fillColor: [
@@ -1201,7 +1565,8 @@ export const ReportsPage: React.FC<
               42,
             ],
             textColor: 255,
-            fontStyle: 'bold',
+            fontStyle:
+              'bold',
           },
           styles: {
             fontSize: 8,
@@ -1210,14 +1575,14 @@ export const ReportsPage: React.FC<
         });
 
         /*
-         * Despesas por categoria
+         * DESPESAS POR CATEGORIA
          */
 
         let currentY =
           (
             doc as any
-          ).lastAutoTable.finalY +
-          10;
+          ).lastAutoTable
+            .finalY + 10;
 
         if (
           currentY >
@@ -1241,7 +1606,8 @@ export const ReportsPage: React.FC<
         );
 
         autoTable(doc, {
-          startY: currentY + 4,
+          startY:
+            currentY + 4,
           margin: {
             left: margin,
             right: margin,
@@ -1281,7 +1647,8 @@ export const ReportsPage: React.FC<
               72,
             ],
             textColor: 255,
-            fontStyle: 'bold',
+            fontStyle:
+              'bold',
           },
           styles: {
             fontSize: 8,
@@ -1290,14 +1657,14 @@ export const ReportsPage: React.FC<
         });
 
         /*
-         * Clientes
+         * CLIENTES
          */
 
         currentY =
           (
             doc as any
-          ).lastAutoTable.finalY +
-          10;
+          ).lastAutoTable
+            .finalY + 10;
 
         if (
           currentY >
@@ -1321,7 +1688,8 @@ export const ReportsPage: React.FC<
         );
 
         autoTable(doc, {
-          startY: currentY + 4,
+          startY:
+            currentY + 4,
           margin: {
             left: margin,
             right: margin,
@@ -1335,7 +1703,8 @@ export const ReportsPage: React.FC<
             ],
           ],
           body:
-            topCustomers.length > 0
+            topCustomers.length >
+            0
               ? topCustomers.map(
                   (
                     customer,
@@ -1370,7 +1739,8 @@ export const ReportsPage: React.FC<
               11,
             ],
             textColor: 255,
-            fontStyle: 'bold',
+            fontStyle:
+              'bold',
           },
           styles: {
             fontSize: 8,
@@ -1379,14 +1749,14 @@ export const ReportsPage: React.FC<
         });
 
         /*
-         * Funil de propostas
+         * FUNIL COMERCIAL
          */
 
         currentY =
           (
             doc as any
-          ).lastAutoTable.finalY +
-          10;
+          ).lastAutoTable
+            .finalY + 10;
 
         if (
           currentY >
@@ -1410,7 +1780,8 @@ export const ReportsPage: React.FC<
         );
 
         autoTable(doc, {
-          startY: currentY + 4,
+          startY:
+            currentY + 4,
           margin: {
             left: margin,
             right: margin,
@@ -1423,6 +1794,16 @@ export const ReportsPage: React.FC<
             ],
           ],
           body: [
+            [
+              'Vendas Confirmadas',
+              String(
+                filteredSales.length
+              ),
+              formatAmount(
+                totalIncome,
+                currencySymbol
+              ),
+            ],
             [
               'Orçamentos Emitidos',
               String(
@@ -1457,7 +1838,8 @@ export const ReportsPage: React.FC<
               229,
             ],
             textColor: 255,
-            fontStyle: 'bold',
+            fontStyle:
+              'bold',
           },
           styles: {
             fontSize: 8,
@@ -1466,7 +1848,7 @@ export const ReportsPage: React.FC<
         });
 
         /*
-         * Rodapé em todas as páginas
+         * RODAPÉ
          */
 
         const totalPages =
@@ -1476,12 +1858,17 @@ export const ReportsPage: React.FC<
 
         for (
           let page = 1;
-          page <= totalPages;
+          page <=
+          totalPages;
           page++
         ) {
-          doc.setPage(page);
+          doc.setPage(
+            page
+          );
 
-          doc.setFontSize(8);
+          doc.setFontSize(
+            8
+          );
 
           doc.setFont(
             'helvetica',
@@ -1510,7 +1897,7 @@ export const ReportsPage: React.FC<
         }
 
         /*
-         * Salvar
+         * SALVAR
          */
 
         doc.save(
@@ -1519,7 +1906,9 @@ export const ReportsPage: React.FC<
             .split('T')[0]}.pdf`
         );
 
-        setExportMenuOpen(false);
+        setExportMenuOpen(
+          false
+        );
       } catch (error) {
         console.error(
           'Erro ao gerar PDF:',
@@ -1560,14 +1949,18 @@ export const ReportsPage: React.FC<
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
+
       {/* HEADER */}
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2.5">
+
             <BarChart2 className="w-7 h-7 text-indigo-600 dark:text-indigo-400" />
 
             Relatórios & Análise
+
           </h1>
 
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -1577,13 +1970,15 @@ export const ReportsPage: React.FC<
         </div>
 
         <div className="flex items-center gap-2">
+
           {/* FILTRO */}
 
           <select
             value={timeframe}
             onChange={(event) =>
               setTimeframe(
-                event.target.value as Timeframe
+                event.target
+                  .value as Timeframe
               )
             }
             className="px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -1611,11 +2006,13 @@ export const ReportsPage: React.FC<
             className="relative"
             ref={exportMenuRef}
           >
+
             <button
               type="button"
               onClick={() =>
                 setExportMenuOpen(
-                  (current) => !current
+                  (current) =>
+                    !current
                 )
               }
               id="export-report-btn"
@@ -1625,6 +2022,7 @@ export const ReportsPage: React.FC<
                 exportMenuOpen
               }
             >
+
               <Download className="w-3.5 h-3.5" />
 
               <span>
@@ -1636,6 +2034,7 @@ export const ReportsPage: React.FC<
               ) : (
                 <ChevronRight className="w-3.5 h-3.5 ml-1 rotate-90" />
               )}
+
             </button>
 
             {exportMenuOpen && (
@@ -1643,6 +2042,7 @@ export const ReportsPage: React.FC<
                 className="absolute right-0 top-full mt-2 w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 overflow-hidden"
                 role="menu"
               >
+
                 <button
                   type="button"
                   onClick={
@@ -1651,6 +2051,7 @@ export const ReportsPage: React.FC<
                   className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                   role="menuitem"
                 >
+
                   <div className="w-8 h-8 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center justify-center">
                     <FileText className="w-4 h-4" />
                   </div>
@@ -1664,6 +2065,7 @@ export const ReportsPage: React.FC<
                       Relatório profissional
                     </p>
                   </div>
+
                 </button>
 
                 <button
@@ -1674,6 +2076,7 @@ export const ReportsPage: React.FC<
                   className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-t border-slate-100 dark:border-slate-800"
                   role="menuitem"
                 >
+
                   <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
                     <FileSpreadsheet className="w-4 h-4" />
                   </div>
@@ -1687,31 +2090,42 @@ export const ReportsPage: React.FC<
                       Dados para Excel
                     </p>
                   </div>
+
                 </button>
+
               </div>
             )}
+
           </div>
+
         </div>
+
       </div>
 
-      {/* INDICADOR DO PERÍODO */}
+      {/* PERÍODO */}
 
       <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+
         <span className="w-2 h-2 rounded-full bg-indigo-500" />
 
         Dados apresentados para:
+
         <strong className="text-slate-700 dark:text-slate-200">
           {periodLabel}
         </strong>
+
       </div>
 
       {/* KPI */}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+
         {/* RECEITA */}
 
         <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+
           <div className="flex items-center justify-between">
+
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
               Receita Total
             </span>
@@ -1719,9 +2133,11 @@ export const ReportsPage: React.FC<
             <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
               <ArrowUpRight className="w-4 h-4" />
             </div>
+
           </div>
 
           <div className="mt-3">
+
             <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
               {formatAmount(
                 totalIncome,
@@ -1730,15 +2146,30 @@ export const ReportsPage: React.FC<
             </h3>
 
             <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
-              Entradas pagas no período
+              {filteredSales.length}{' '}
+              venda
+              {filteredSales.length ===
+              1
+                ? ''
+                : 's'}{' '}
+              confirmada
+              {filteredSales.length ===
+              1
+                ? ''
+                : 's'}{' '}
+              no período
             </p>
+
           </div>
+
         </div>
 
         {/* DESPESAS */}
 
         <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+
           <div className="flex items-center justify-between">
+
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
               Despesas Totais
             </span>
@@ -1746,9 +2177,11 @@ export const ReportsPage: React.FC<
             <div className="w-8 h-8 rounded-xl bg-rose-50 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400 flex items-center justify-center">
               <ArrowDownRight className="w-4 h-4" />
             </div>
+
           </div>
 
           <div className="mt-3">
+
             <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
               {formatAmount(
                 totalExpenses,
@@ -1759,13 +2192,17 @@ export const ReportsPage: React.FC<
             <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
               Saídas liquidadas
             </p>
+
           </div>
+
         </div>
 
         {/* LUCRO */}
 
         <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+
           <div className="flex items-center justify-between">
+
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
               Lucro Líquido
             </span>
@@ -1779,9 +2216,11 @@ export const ReportsPage: React.FC<
             >
               <DollarSign className="w-4 h-4" />
             </div>
+
           </div>
 
           <div className="mt-3">
+
             <h3
               className={`text-2xl font-bold ${
                 netProfit >= 0
@@ -1801,13 +2240,17 @@ export const ReportsPage: React.FC<
                 {profitMargin}%
               </span>
             </p>
+
           </div>
+
         </div>
 
         {/* CONVERSÃO */}
 
         <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+
           <div className="flex items-center justify-between">
+
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
               Eficácia Comercial
             </span>
@@ -1815,30 +2258,40 @@ export const ReportsPage: React.FC<
             <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 flex items-center justify-center">
               <Percent className="w-4 h-4" />
             </div>
+
           </div>
 
           <div className="mt-3">
+
             <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
               {conversionRate}%
             </h3>
 
             <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
-              {acceptedQuotes.length} de{' '}
+              {acceptedQuotes.length}{' '}
+              de{' '}
               {filteredQuotes.length}{' '}
               orçamentos aceites
             </p>
+
           </div>
+
         </div>
+
       </div>
 
       {/* GRÁFICO + CATEGORIAS */}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
         {/* GRÁFICO */}
 
         <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+
           <div className="flex items-center justify-between mb-6">
+
             <div>
+
               <h2 className="text-sm font-bold text-slate-900 dark:text-white">
                 Evolução Financeira Semestral
               </h2>
@@ -1846,11 +2299,14 @@ export const ReportsPage: React.FC<
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Comparativo mensal entre Receitas e Despesas
               </p>
+
             </div>
 
             <div className="flex items-center gap-4 text-xs">
+
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-sm bg-emerald-500" />
+
                 <span className="text-slate-600 dark:text-slate-400">
                   Receitas
                 </span>
@@ -1858,26 +2314,37 @@ export const ReportsPage: React.FC<
 
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-sm bg-rose-400" />
+
                 <span className="text-slate-600 dark:text-slate-400">
                   Despesas
                 </span>
               </div>
+
             </div>
+
           </div>
 
           <div className="space-y-4 pt-2">
+
             <div className="grid grid-cols-6 gap-3 sm:gap-6 h-48 items-end border-b border-slate-200 dark:border-slate-800 pb-2">
+
               {monthlyData.map(
-                (item, index) => {
+                (
+                  item,
+                  index
+                ) => {
+
                   const incomeHeight =
-                    maxMonthValue > 0
+                    maxMonthValue >
+                    0
                       ? (item.income /
                           maxMonthValue) *
                         100
                       : 0;
 
                   const expenseHeight =
-                    maxMonthValue > 0
+                    maxMonthValue >
+                    0
                       ? (item.expense /
                           maxMonthValue) *
                         100
@@ -1888,12 +2355,15 @@ export const ReportsPage: React.FC<
                       key={`${item.year}-${item.month}-${index}`}
                       className="flex flex-col items-center h-full justify-end group"
                     >
+
                       <div className="w-full flex items-end justify-center gap-1.5 h-full max-h-36">
+
                         <div
                           style={{
                             height: `${Math.max(
                               incomeHeight,
-                              item.income > 0
+                              item.income >
+                                0
                                 ? 4
                                 : 0
                             )}%`,
@@ -1909,7 +2379,8 @@ export const ReportsPage: React.FC<
                           style={{
                             height: `${Math.max(
                               expenseHeight,
-                              item.expense > 0
+                              item.expense >
+                                0
                                 ? 4
                                 : 0
                             )}%`,
@@ -1920,27 +2391,36 @@ export const ReportsPage: React.FC<
                             currencySymbol
                           )}`}
                         />
+
                       </div>
 
                       <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mt-2">
                         {item.month}
                       </span>
+
                     </div>
                   );
                 }
               )}
+
             </div>
+
           </div>
+
         </div>
 
         {/* CATEGORIAS */}
 
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs flex flex-col justify-between">
+
           <div>
+
             <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+
               <PieChart className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
 
               Despesas por Categoria
+
             </h2>
 
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -1948,6 +2428,7 @@ export const ReportsPage: React.FC<
             </p>
 
             <div className="mt-5 space-y-3.5">
+
               {expensesByCategory.length ===
               0 ? (
                 <div className="py-8 text-center text-slate-400 text-xs">
@@ -1965,7 +2446,9 @@ export const ReportsPage: React.FC<
                         key={`${item.category}-${index}`}
                         className="space-y-1"
                       >
+
                         <div className="flex items-center justify-between text-xs font-medium">
+
                           <span className="text-slate-700 dark:text-slate-300">
                             {
                               item.category
@@ -1973,6 +2456,7 @@ export const ReportsPage: React.FC<
                           </span>
 
                           <span className="text-slate-900 dark:text-white font-mono font-bold">
+
                             {formatAmount(
                               item.amount,
                               currencySymbol
@@ -1985,10 +2469,13 @@ export const ReportsPage: React.FC<
                               }
                               %)
                             </span>
+
                           </span>
+
                         </div>
 
                         <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+
                           <div
                             className="bg-indigo-600 dark:bg-indigo-500 h-2 rounded-full transition-all"
                             style={{
@@ -1998,15 +2485,20 @@ export const ReportsPage: React.FC<
                               )}%`,
                             }}
                           />
+
                         </div>
+
                       </div>
                     )
                   )
               )}
+
             </div>
+
           </div>
 
           <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80 text-[11px] text-slate-400 flex items-center justify-between">
+
             <span>
               Total Alocado:
             </span>
@@ -2017,21 +2509,29 @@ export const ReportsPage: React.FC<
                 currencySymbol
               )}
             </span>
+
           </div>
+
         </div>
+
       </div>
 
       {/* CLIENTES + FUNIL */}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
         {/* CLIENTES */}
 
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+
           <div className="flex items-center justify-between mb-4">
+
             <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+
               <Award className="w-4 h-4 text-amber-500" />
 
               Principais Clientes por Faturamento
+
             </h2>
 
             <button
@@ -2046,10 +2546,13 @@ export const ReportsPage: React.FC<
               Ver todos
 
               <ChevronRight className="w-3 h-3" />
+
             </button>
+
           </div>
 
           <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
+
             {topCustomers.length ===
             0 ? (
               <p className="py-6 text-center text-xs text-slate-400">
@@ -2065,7 +2568,9 @@ export const ReportsPage: React.FC<
                     key={`${customer.name}-${index}`}
                     className="py-3 flex items-center justify-between"
                   >
+
                     <div className="flex items-center gap-3">
+
                       <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-700 dark:text-slate-300">
                         #
                         {index +
@@ -2073,6 +2578,7 @@ export const ReportsPage: React.FC<
                       </div>
 
                       <div>
+
                         <p className="text-xs font-semibold text-slate-900 dark:text-white">
                           {
                             customer.name
@@ -2088,7 +2594,9 @@ export const ReportsPage: React.FC<
                             ? 'transação'
                             : 'transações'}
                         </span>
+
                       </div>
+
                     </div>
 
                     <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">
@@ -2097,25 +2605,68 @@ export const ReportsPage: React.FC<
                         currencySymbol
                       )}
                     </span>
+
                   </div>
                 )
               )
             )}
+
           </div>
+
         </div>
 
         {/* FUNIL */}
 
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+
           <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-4">
+
             <Target className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
 
             Funil de Propostas & Orçamentos
+
           </h2>
 
           <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
+
+            {/* VENDAS */}
+
+            <div className="p-4 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40">
+
               <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+
+                <span>
+                  Vendas Confirmadas
+                </span>
+
+                <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                  {
+                    filteredSales.length
+                  }{' '}
+                  (
+                  {formatAmount(
+                    totalIncome,
+                    currencySymbol
+                  )}
+                  )
+                </span>
+
+              </div>
+
+              <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2">
+
+                <div className="bg-emerald-500 h-2 rounded-full w-full" />
+
+              </div>
+
+            </div>
+
+            {/* ORÇAMENTOS */}
+
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
+
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+
                 <span>
                   Orçamentos Emitidos
                 </span>
@@ -2131,15 +2682,23 @@ export const ReportsPage: React.FC<
                   )}
                   )
                 </span>
+
               </div>
 
               <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2">
+
                 <div className="bg-indigo-500 h-2 rounded-full w-full" />
+
               </div>
+
             </div>
 
+            {/* ACEITES */}
+
             <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
+
               <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+
                 <span>
                   Propostas Aceites & Adjudicadas
                 </span>
@@ -2155,35 +2714,52 @@ export const ReportsPage: React.FC<
                   )}
                   )
                 </span>
+
               </div>
 
               <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+
                 <div
                   className="bg-emerald-500 h-2 rounded-full transition-all"
                   style={{
                     width: `${conversionRate}%`,
                   }}
                 />
+
               </div>
+
             </div>
 
+            {/* DICA */}
+
             <div className="p-3.5 rounded-xl bg-indigo-50/60 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 flex items-start gap-2.5">
+
               <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
 
               <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+
                 <span className="font-bold text-slate-900 dark:text-white">
                   Dica do Assistente:
                 </span>{' '}
+
                 Com uma taxa de conversão de{' '}
+
                 <span className="font-bold">
                   {conversionRate}%
                 </span>
+
                 , o acompanhamento dos orçamentos pode ajudar a aumentar o fecho de negócios.
+
               </p>
+
             </div>
+
           </div>
+
         </div>
+
       </div>
+
     </div>
   );
 };
