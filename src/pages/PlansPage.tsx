@@ -434,16 +434,18 @@ export const PlansPage: React.FC = () => {
                 'start_workspace_trial',
                 {
                     target_workspace:
-                        workspace.id,
+                        workspaceId,
 
                     selected_plan:
-                        selectedPlanForDatabase,
+                        selectedPlan,
                 }
             );
 
             if (error) {
+                console.error('[PlansPage] Erro ao iniciar trial:', error);
                 throw error;
             }
+            console.log('[PlansPage] Trial iniciado:', data);
 
             if (!data) {
                 throw new Error(
