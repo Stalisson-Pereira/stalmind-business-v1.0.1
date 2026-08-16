@@ -24,6 +24,7 @@ import { PaymentsPage } from './pages/PaymentsPage';
 import { PlansPage } from './pages/PlansPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SalesPage } from './pages/SalesPage';
+import { ReportsPage } from './pages/ReportsPage';
 
 import { Loader2 } from 'lucide-react';
 
@@ -66,8 +67,11 @@ const AppContent: React.FC = () => {
   }
 
   /*
+   * ============================================================
    * ROTAS PÚBLICAS
+   * ============================================================
    */
+
   if (currentPath === '/') {
     return (
       <LandingPage
@@ -77,7 +81,9 @@ const AppContent: React.FC = () => {
   }
 
   if (!user) {
-    if (currentPath === '/register') {
+    if (
+      currentPath === '/register'
+    ) {
       return (
         <RegisterPage
           onNavigate={handleNavigate}
@@ -86,7 +92,8 @@ const AppContent: React.FC = () => {
     }
 
     if (
-      currentPath === '/forgot-password'
+      currentPath ===
+      '/forgot-password'
     ) {
       return (
         <ForgotPasswordPage
@@ -103,17 +110,28 @@ const AppContent: React.FC = () => {
   }
 
   /*
-   * DASHBOARD
+   * ============================================================
+   * PÁGINA PADRÃO
+   * ============================================================
    */
+
   let pageComponent: React.ReactNode = (
     <DashboardPage
       onNavigate={handleNavigate}
     />
   );
 
+  /*
+   * ============================================================
+   * ROTAS AUTENTICADAS
+   * ============================================================
+   */
+
   switch (currentPath) {
     case '/assistant':
-      pageComponent = <AssistantPage />;
+      pageComponent = (
+        <AssistantPage />
+      );
       break;
 
     case '/customers':
@@ -137,73 +155,74 @@ const AppContent: React.FC = () => {
       break;
 
     case '/messages':
-      pageComponent = <MessagesPage />;
+      pageComponent = (
+        <MessagesPage />
+      );
       break;
 
     case '/sales':
-      /*
-       * VENDAS ESTÁ IMPLEMENTADO.
-       * Não deve mais aparecer "Em breve".
-       */
       pageComponent = (
         <SalesPage
-          onNavigate={handleNavigate}
+          onNavigate={
+            handleNavigate
+          }
         />
       );
       break;
 
     case '/financial':
-      pageComponent = <FinancialPage />;
+      pageComponent = (
+        <FinancialPage />
+      );
       break;
 
     case '/payments':
-      pageComponent = <PaymentsPage />;
+      pageComponent = (
+        <PaymentsPage />
+      );
       break;
 
     case '/plans':
-      pageComponent = <PlansPage />;
+      pageComponent = (
+        <PlansPage />
+      );
       break;
 
     case '/settings':
-      pageComponent = <SettingsPage />;
+      pageComponent = (
+        <SettingsPage />
+      );
       break;
+
+    /*
+     * ========================================================
+     * RELATÓRIOS
+     * ========================================================
+     */
 
     case '/reports':
       pageComponent = (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-12 text-center max-w-xl mx-auto mt-8">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto mb-4">
-            <Loader2 className="w-6 h-6" />
-          </div>
-
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-            Módulo em Desenvolvimento
-          </h2>
-
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-            Este recurso estará disponível
-            numa próxima atualização do
-            Stalmind Pro.
-          </p>
-
-          <button
-            onClick={() =>
-              handleNavigate(
-                '/dashboard'
-              )
-            }
-            className="mt-6 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold"
-          >
-            Voltar ao Dashboard
-          </button>
-        </div>
+        <ReportsPage
+          onNavigate={
+            handleNavigate
+          }
+        />
       );
       break;
+
+    /*
+     * ========================================================
+     * DASHBOARD
+     * ========================================================
+     */
 
     case '/dashboard':
     default:
       pageComponent = (
         <DashboardPage
-          onNavigate={handleNavigate}
+          onNavigate={
+            handleNavigate
+          }
         />
       );
       break;
@@ -211,8 +230,12 @@ const AppContent: React.FC = () => {
 
   return (
     <MainLayout
-      activePath={currentPath}
-      onNavigate={handleNavigate}
+      activePath={
+        currentPath
+      }
+      onNavigate={
+        handleNavigate
+      }
     >
       {pageComponent}
     </MainLayout>
