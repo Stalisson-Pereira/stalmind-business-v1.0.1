@@ -569,36 +569,6 @@ export const ReportsPage: React.FC<
             : []
         );
 
-        console.log(
-          '[ReportsPage] Vendas carregadas:',
-          salesData?.length ?? 0
-        );
-
-        console.log(
-          '[ReportsPage] Pagamentos carregados:',
-          paymentsData?.length ?? 0
-        );
-
-        console.log(
-          '[ReportsPage] Despesas carregadas:',
-          expensesData?.length ?? 0
-        );
-
-        console.log(
-          '[ReportsPage] Faturas carregadas:',
-          invoicesData?.length ?? 0
-        );
-
-        console.log(
-          '[ReportsPage] Orçamentos carregados:',
-          quotesResult.data?.length ?? 0
-        );
-
-        console.log(
-          '[ReportsPage] Clientes carregados:',
-          customersResult.data?.length ?? 0
-        );
-
         /*
          * Só mostramos erro geral quando as quatro tabelas
          * financeiras principais falham simultaneamente.
