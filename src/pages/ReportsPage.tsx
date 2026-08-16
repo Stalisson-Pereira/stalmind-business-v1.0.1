@@ -28,6 +28,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { quoteService } from '../services/quoteService';
 import { financialService } from '../services/financialService';
 import { customerService } from '../services/customerService';
+import { saleService, Sale } from '../services/saleService';
 
 import {
   Quote,
@@ -122,6 +123,7 @@ export const ReportsPage: React.FC<
   const { workspace } = useAuth();
 
   const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [sales, setSales] = useState<Sale[]>([]);
   const [transactions, setTransactions] = useState<
     FinancialTransaction[]
   >([]);
@@ -170,12 +172,16 @@ export const ReportsPage: React.FC<
           loadedQuotes,
           loadedTransactions,
           loadedCustomers,
+          loadedSales,
         ] = await Promise.all([
           quoteService.getQuotes(workspace.id),
           financialService.getTransactions(
             workspace.id
           ),
           customerService.getCustomers(
+            workspace.id
+          ),
+          saleService.getSales(
             workspace.id
           ),
         ]);
@@ -199,6 +205,12 @@ export const ReportsPage: React.FC<
             ? loadedCustomers
             : []
         );
+
+        setSales(
+          Array.isArray(loadedSales)
+            ? loadedSales
+            : []
+       );
       } catch (error) {
         console.error(
           'Erro ao carregar dados dos relatórios:',
