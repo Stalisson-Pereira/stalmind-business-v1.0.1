@@ -1,19 +1,20 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { notificationService } from '../services/notificationService';
 import { Modal } from '../components/common/Modal';
 import { supabase } from '../lib/supabaseClient';
+
 import {
-    Crown,
-    Check,
-    ShieldCheck,
     ArrowRight,
-    HelpCircle,
-    Clock,
+    Check,
     CheckCircle2,
+    Clock,
+    Crown,
     Gift,
+    HelpCircle,
+    ShieldCheck,
     Star,
-    AlertCircle,
+    X,
 } from 'lucide-react';
 
 export interface PlanTier {
@@ -32,7 +33,8 @@ const PLAN_TIERS: PlanTier[] = [
     {
         id: 'Starter',
         name: 'Starter / Gratuito',
-        tagline: 'Ideal para freelancers e negócios em fase inicial.',
+        tagline:
+            'Ideal para freelancers e negócios em fase inicial.',
         monthlyPrice: 0,
         annualPriceMonthly: 0,
         features: [
@@ -46,29 +48,33 @@ const PLAN_TIERS: PlanTier[] = [
         cta: 'Começar Grátis',
         color: 'slate',
     },
+
     {
         id: 'Pro',
         name: 'Pro / Profissional',
-        tagline: 'Para consultores, agências e PMEs que buscam escala com IA.',
+        tagline:
+            'Para consultores, agências e PMEs que buscam escala com IA.',
         monthlyPrice: 19.99,
         annualPriceMonthly: 9.99,
         popular: true,
         features: [
             'Clientes e orçamentos ilimitados',
-            'Assistente IA Ilimitado',
+            'Assistente IA Ilimitado (Gemini 2.5/3 Pro)',
             'Links de Pagamento & Cobranças Automáticas',
             'Integrações PIX, PayPal, Stripe e SumUp',
             'Lembretes por WhatsApp & E-mail',
             'Relatórios e Análise Financeira',
             'Suporte Prioritário 24/7',
         ],
-        cta: 'Experimentar 14 Dias Grátis',
+        cta: 'Ativar Plano Pro',
         color: 'indigo',
     },
+
     {
         id: 'Enterprise',
         name: 'Enterprise / Negócios',
-        tagline: 'Para equipas e empresas com altas demandas de automatização.',
+        tagline:
+            'Para equipas e empresas com altas demandas de automatização.',
         monthlyPrice: 69.99,
         annualPriceMonthly: 49.99,
         features: [
@@ -80,160 +86,166 @@ const PLAN_TIERS: PlanTier[] = [
             'Gerente de Conta Dedicado',
             'SLA de suporte garantido em 1h',
         ],
-        cta: 'Experimentar 14 Dias Grátis',
+        cta: 'Ativar Enterprise',
         color: 'violet',
     },
 ];
 
-type TrialPlan = 'pro' | 'business';
+type BillingCycle = 'monthly' | 'annually';
 
 interface TrialResult {
     success: boolean;
     workspace_id: string;
-    plan: TrialPlan;
+    plan: string;
     trial_used: boolean;
     trial_started_at: string;
     trial_ends_at: string;
     days: number;
 }
 
-interface WorkspaceWithTrial {
-    id?: string;
-    plan?: string;
-    planBilling?: 'monthly' | 'annually';
+interface WorkspaceTrialState {
+    trialUsed?: boolean;
     trial_used?: boolean;
+    trialStartedAt?: string | null;
     trial_started_at?: string | null;
+    trialEndsAt?: string | null;
     trial_ends_at?: string | null;
 }
 
-const TRIAL_DAYS = 14;
-
-const PLAN_TO_RPC: Record<'Pro' | 'Enterprise', TrialPlan> = {
-    Pro: 'pro',
-    Enterprise: 'business',
-};
-
 export const PlansPage: React.FC = () => {
-    const { workspace, updateWorkspace } = useAuth();
+    const {
+        workspace,
+        updateWorkspace,
+    } = useAuth();
 
-    const workspaceWithTrial = workspace as WorkspaceWithTrial | null;
+    const [billingCycle, setBillingCycle] =
+        useState<BillingCycle>('monthly');
 
-    const [billingCycle, setBillingCycle] = useState<'monthly' | 'annually'>(
-        workspaceWithTrial?.planBilling || 'monthly'
-    );
+    const [selectedPlan, setSelectedPlan] =
+        useState<PlanTier | null>(null);
 
-    const [selectedPlan, setSelectedPlan] = useState<PlanTier | null>(null);
-    const [isTrialModalOpen, setIsTrialModalOpen] = useState(false);
+    const [isTrialModalOpen, setIsTrialModalOpen] =
+        useState(false);
 
-    const [isStartingTrial, setIsStartingTrial] = useState(false);
-    const [trialStarted, setTrialStarted] = useState(false);
-    const [trialResult, setTrialResult] = useState<TrialResult | null>(null);
+    const [isProcessing, setIsProcessing] =
+        useState(false);
 
-    const [errorMessage, setErrorMessage] = useState('');
+    const [trialSuccess, setTrialSuccess] =
+        useState(false);
 
-    const currentPlanId = useMemo(() => {
-        const plan = workspaceWithTrial?.plan;
+    const [trialResult, setTrialResult] =
+        useState<TrialResult | null>(null);
 
-        if (!plan) {
-            return 'Starter';
-        }
+    const [errorMessage, setErrorMessage] =
+        useState<string | null>(null);
 
-        const normalized = String(plan).toLowerCase();
+    /*
+     * ============================================================
+     * NORMALIZAÇÃO DO PLANO ATUAL
+     *
+     * O banco pode retornar:
+     *
+     * pro
+     * enterprise
+     * starter
+     * free
+     *
+     * enquanto a interface utiliza:
+     *
+     * Starter
+     * Pro
+     * Enterprise
+     * ============================================================
+     */
 
-        if (normalized === 'pro') {
+    const currentPlanId = useMemo<PlanTier['id']>(() => {
+        const value = String(
+            workspace?.plan ?? 'Starter'
+        ).toLowerCase();
+
+        if (
+            value === 'pro'
+        ) {
             return 'Pro';
         }
 
         if (
-            normalized === 'enterprise' ||
-            normalized === 'business'
+            value === 'enterprise' ||
+            value === 'business'
         ) {
             return 'Enterprise';
         }
 
         return 'Starter';
-    }, [workspaceWithTrial?.plan]);
+    }, [workspace?.plan]);
 
-    const trialEndsAt = useMemo(() => {
-        if (!workspaceWithTrial?.trial_ends_at) {
-            return null;
-        }
+    /*
+     * ============================================================
+     * DADOS DO TRIAL
+     * ============================================================
+     */
 
-        const date = new Date(workspaceWithTrial.trial_ends_at);
+    const workspaceTrial =
+        (workspace ?? {}) as typeof workspace &
+            WorkspaceTrialState;
 
-        if (Number.isNaN(date.getTime())) {
-            return null;
-        }
+    const trialUsed =
+        workspaceTrial?.trial_used ??
+        workspaceTrial?.trialUsed ??
+        false;
 
-        return date;
-    }, [workspaceWithTrial?.trial_ends_at]);
+    const trialEndsAt =
+        workspaceTrial?.trial_ends_at ??
+        workspaceTrial?.trialEndsAt ??
+        null;
 
-    const isTrialActive = useMemo(() => {
+    const trialStartedAt =
+        workspaceTrial?.trial_started_at ??
+        workspaceTrial?.trialStartedAt ??
+        null;
+
+    const trialIsActive =
+        !!trialEndsAt &&
+        new Date(trialEndsAt).getTime() > Date.now();
+
+    /*
+     * ============================================================
+     * DIAS RESTANTES
+     * ============================================================
+     */
+
+    const trialDaysRemaining = useMemo(() => {
         if (!trialEndsAt) {
-            return false;
-        }
-
-        return trialEndsAt.getTime() > Date.now();
-    }, [trialEndsAt]);
-
-    const trialAlreadyUsed = Boolean(
-        workspaceWithTrial?.trial_used
-    );
-
-    const getDaysRemaining = (date: Date | null) => {
-        if (!date) {
             return 0;
         }
 
-        const difference = date.getTime() - Date.now();
+        const end =
+            new Date(trialEndsAt).getTime();
 
-        if (difference <= 0) {
+        const now =
+            Date.now();
+
+        const diff =
+            end - now;
+
+        if (diff <= 0) {
             return 0;
         }
 
         return Math.ceil(
-            difference / (1000 * 60 * 60 * 24)
+            diff / (1000 * 60 * 60 * 24)
         );
-    };
+    }, [trialEndsAt]);
 
-    const daysRemaining = getDaysRemaining(trialEndsAt);
+    /*
+     * ============================================================
+     * PREÇO
+     * ============================================================
+     */
 
-    useEffect(() => {
-        if (!trialEndsAt || !isTrialActive) {
-            return;
-        }
-
-        const interval = window.setInterval(() => {
-            // Atualiza o componente periodicamente para o contador
-            // refletir a passagem dos dias sem recarregar a página.
-            setTrialResult((current) => current);
-        }, 60_000);
-
-        return () => window.clearInterval(interval);
-    }, [trialEndsAt, isTrialActive]);
-
-    const formatDate = (value: string | Date | null | undefined) => {
-        if (!value) {
-            return '';
-        }
-
-        const date =
-            value instanceof Date
-                ? value
-                : new Date(value);
-
-        if (Number.isNaN(date.getTime())) {
-            return '';
-        }
-
-        return date.toLocaleDateString('pt-PT', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-        });
-    };
-
-    const getPlanPrice = (plan: PlanTier) => {
+    const getPlanPrice = (
+        plan: PlanTier
+    ) => {
         const price =
             billingCycle === 'annually'
                 ? plan.annualPriceMonthly
@@ -246,149 +258,186 @@ export const PlansPage: React.FC = () => {
         return `€${price.toFixed(2)}`;
     };
 
-    const getAnnualTotal = (plan: PlanTier) => {
-        return (plan.annualPriceMonthly * 12).toFixed(2);
+    /*
+     * ============================================================
+     * LABEL DO CICLO
+     * ============================================================
+     */
+
+    const getBillingLabel = () => {
+        return billingCycle === 'annually'
+            ? 'Anual'
+            : 'Mensal';
     };
 
-    const isCurrentPlan = (plan: PlanTier) => {
-        return currentPlanId === plan.id;
-    };
+    /*
+     * ============================================================
+     * NOTIFICAÇÃO
+     * ============================================================
+     */
 
-    const canStartTrial = (plan: PlanTier) => {
-        if (plan.id === 'Starter') {
-            return false;
-        }
-
-        if (trialAlreadyUsed) {
-            return false;
-        }
-
-        if (isTrialActive) {
-            return false;
-        }
-
-        return true;
-    };
-
-    const handleStarterActivation = async () => {
-        if (currentPlanId === 'Starter') {
-            return;
-        }
-
+    const createTrialNotification = (
+        plan: PlanTier,
+        result: TrialResult
+    ) => {
         try {
-            setErrorMessage('');
-
-            await updateWorkspace({
-                plan: 'Starter',
-                planBilling: 'monthly',
-            });
-
             const notifications =
                 notificationService.getNotifications();
 
-            notifications.unshift({
-                id: `notif_${Date.now()}`,
-                title: 'Plano alterado',
+            const updatedNotifications =
+                Array.isArray(notifications)
+                    ? [...notifications]
+                    : [];
+
+            updatedNotifications.unshift({
+                id: `notif_trial_${Date.now()}`,
+
+                title:
+                    'Período de teste iniciado 🎉',
+
                 message:
-                    'O espaço de trabalho foi alterado para o Plano Starter Gratuito.',
+                    `O plano ${plan.name} foi ativado gratuitamente por 14 dias. ` +
+                    `Nenhum pagamento foi realizado agora.`,
+
                 type: 'payment',
+
                 read: false,
-                createdAt: new Date().toISOString(),
+
+                createdAt:
+                    new Date().toISOString(),
+
                 link: '/plans',
             });
 
             localStorage.setItem(
                 'stalmind_app_notifications',
-                JSON.stringify(notifications)
+                JSON.stringify(
+                    updatedNotifications
+                )
             );
-        } catch (error) {
-            console.error(
-                '[PlansPage] Erro ao ativar Starter:',
-                error
-            );
-
-            setErrorMessage(
-                'Não foi possível alterar para o Plano Starter.'
-            );
+        } catch {
+            /*
+             * Falha na notificação não deve
+             * cancelar o trial.
+             */
         }
     };
 
-    const handleOpenPlan = (plan: PlanTier) => {
-        setErrorMessage('');
-        setTrialStarted(false);
-        setTrialResult(null);
+    /*
+     * ============================================================
+     * INICIAR TRIAL
+     * ============================================================
+     */
 
-        if (plan.id === 'Starter') {
-            void handleStarterActivation();
+    const handleStartTrial = async (
+        plan: PlanTier
+    ) => {
+        if (!workspace?.id) {
+            setErrorMessage(
+                'Não foi possível identificar o workspace atual.'
+            );
+
             return;
         }
 
-        if (isCurrentPlan(plan)) {
+        if (
+            plan.id === 'Starter'
+        ) {
+            await handleStarterPlan();
+
             return;
         }
 
-        if (trialAlreadyUsed) {
-            setSelectedPlan(plan);
-            setIsTrialModalOpen(true);
+        if (
+            plan.id !== 'Pro' &&
+            plan.id !== 'Enterprise'
+        ) {
+            setErrorMessage(
+                'Plano inválido.'
+            );
+
+            return;
+        }
+
+        if (
+            currentPlanId === plan.id &&
+            trialIsActive
+        ) {
+            setErrorMessage(
+                'Este plano já possui um período de teste ativo.'
+            );
+
+            return;
+        }
+
+        if (trialUsed) {
+            setErrorMessage(
+                'Este workspace já utilizou o período de teste gratuito de 14 dias.'
+            );
+
             return;
         }
 
         setSelectedPlan(plan);
+        setErrorMessage(null);
+        setTrialSuccess(false);
+        setTrialResult(null);
         setIsTrialModalOpen(true);
     };
 
-    const handleStartTrial = async () => {
-        if (!selectedPlan || !workspace?.id) {
-            setErrorMessage(
-                'Não foi possível identificar o espaço de trabalho.'
-            );
+    /*
+     * ============================================================
+     * CONFIRMAR TRIAL
+     * ============================================================
+     */
+
+    const confirmStartTrial = async () => {
+        if (
+            !selectedPlan ||
+            !workspace?.id
+        ) {
             return;
         }
 
-        if (selectedPlan.id === 'Starter') {
+        if (
+            selectedPlan.id !== 'Pro' &&
+            selectedPlan.id !== 'Enterprise'
+        ) {
             return;
         }
 
-        if (trialAlreadyUsed) {
-            setErrorMessage(
-                'Este espaço de trabalho já utilizou o período de teste gratuito.'
-            );
-            return;
-        }
-
-        if (isTrialActive) {
-            setErrorMessage(
-                'Este espaço de trabalho já possui um período de teste ativo.'
-            );
-            return;
-        }
-
-        setIsStartingTrial(true);
-        setErrorMessage('');
+        setIsProcessing(true);
+        setErrorMessage(null);
 
         try {
-            const rpcPlan = PLAN_TO_RPC[selectedPlan.id];
+            const selectedPlanForDatabase =
+                selectedPlan.id.toLowerCase();
 
             /*
              * IMPORTANTE:
              *
-             * A RPC é responsável por:
-             * - validar o utilizador;
-             * - validar a membership;
-             * - impedir segundo trial;
-             * - ativar o plano;
-             * - marcar trial_used;
-             * - registrar trial_started_at;
-             * - registrar trial_ends_at;
-             * - definir 14 dias.
+             * A assinatura precisa ser:
              *
-             * Portanto NÃO fazemos pagamento aqui.
+             * start_workspace_trial(
+             *   uuid,
+             *   text
+             * )
+             *
+             * O Supabase RPC utiliza os nomes dos
+             * parâmetros definidos na função.
              */
-            const { data, error } = await supabase.rpc(
+
+            const {
+                data,
+                error,
+            } = await supabase.rpc(
                 'start_workspace_trial',
                 {
-                    target_workspace: workspace.id,
-                    selected_plan: rpcPlan,
+                    target_workspace:
+                        workspace.id,
+
+                    selected_plan:
+                        selectedPlanForDatabase,
                 }
             );
 
@@ -396,61 +445,280 @@ export const PlansPage: React.FC = () => {
                 throw error;
             }
 
-            const result = data as TrialResult;
+            if (!data) {
+                throw new Error(
+                    'O Supabase não retornou os dados do período de teste.'
+                );
+            }
 
-            if (!result?.success) {
+            const result =
+                data as TrialResult;
+
+            if (
+                result.success !== true
+            ) {
                 throw new Error(
                     'Não foi possível iniciar o período de teste.'
                 );
             }
 
             /*
-             * Mantém o estado global do workspace sincronizado.
+             * Atualiza o estado do aplicativo.
              *
-             * O banco continua sendo a fonte oficial do trial.
+             * O banco trabalha com:
+             * pro / enterprise
+             *
+             * A interface trabalha com:
+             * Pro / Enterprise
              */
+
             await updateWorkspace({
                 plan: selectedPlan.id,
                 planBilling: billingCycle,
             });
 
+            /*
+             * Criar notificação.
+             */
+
+            createTrialNotification(
+                selectedPlan,
+                result
+            );
+
+            /*
+             * Guardar resultado.
+             */
+
             setTrialResult(result);
-            setTrialStarted(true);
 
-            const notifications =
-                notificationService.getNotifications();
+            setTrialSuccess(true);
 
-            notifications.unshift({
-                id: `notif_${Date.now()}`,
-                title: '🎉 Teste gratuito ativado',
-                message: `O ${selectedPlan.name} foi ativado por 14 dias gratuitamente. O período termina em ${formatDate(
-                    result.trial_ends_at
-                )}.`,
-                type: 'payment',
-                read: false,
-                createdAt: new Date().toISOString(),
-                link: '/plans',
-            });
-
-            localStorage.setItem(
-                'stalmind_app_notifications',
-                JSON.stringify(notifications)
-            );
         } catch (error: any) {
-            console.error(
-                '[PlansPage] Erro ao iniciar trial:',
-                error
-            );
 
-            const message =
-                error?.message ||
-                'Não foi possível iniciar o período de teste gratuito.';
+            let message =
+                'Não foi possível iniciar o período de teste.';
+
+            /*
+             * Erro 404 / PGRST202
+             */
+
+            if (
+                error?.code === 'PGRST202' ||
+                error?.status === 404
+            ) {
+                message =
+                    'A função de trial do Supabase não está disponível com a assinatura correta. Execute novamente a função start_workspace_trial no SQL Editor e recarregue o schema.';
+            }
+
+            /*
+             * Usuário não autenticado
+             */
+
+            else if (
+                error?.message?.toLowerCase?.().includes(
+                    'não autenticado'
+                )
+            ) {
+                message =
+                    'Sua sessão expirou. Faça login novamente para iniciar o teste gratuito.';
+            }
+
+            /*
+             * Trial já utilizado
+             */
+
+            else if (
+                error?.message?.toLowerCase?.().includes(
+                    'já foi utilizado'
+                )
+            ) {
+                message =
+                    'Este workspace já utilizou o período de teste gratuito de 14 dias.';
+            }
+
+            /*
+             * Trial ativo
+             */
+
+            else if (
+                error?.message?.toLowerCase?.().includes(
+                    'já possui um período de teste ativo'
+                )
+            ) {
+                message =
+                    'Este workspace já possui um período de teste ativo.';
+            }
+
+            /*
+             * Permissão
+             */
+
+            else if (
+                error?.code === '42501'
+            ) {
+                message =
+                    'Você não possui permissão para iniciar o período de teste neste workspace.';
+            }
+
+            /*
+             * Mensagem do banco
+             */
+
+            else if (
+                typeof error?.message === 'string' &&
+                error.message.trim()
+            ) {
+                message =
+                    error.message;
+            }
 
             setErrorMessage(message);
+
         } finally {
-            setIsStartingTrial(false);
+            setIsProcessing(false);
         }
     };
+
+    /*
+     * ============================================================
+     * PLANO STARTER
+     * ============================================================
+     */
+
+    const handleStarterPlan = async () => {
+        if (!workspace?.id) {
+            setErrorMessage(
+                'Workspace não encontrado.'
+            );
+
+            return;
+        }
+
+        if (
+            currentPlanId === 'Starter'
+        ) {
+            return;
+        }
+
+        setIsProcessing(true);
+        setErrorMessage(null);
+
+        try {
+            await updateWorkspace({
+                plan: 'Starter',
+                planBilling: 'monthly',
+            });
+
+            try {
+                const notifications =
+                    notificationService.getNotifications();
+
+                const updatedNotifications =
+                    Array.isArray(notifications)
+                        ? [...notifications]
+                        : [];
+
+                updatedNotifications.unshift({
+                    id: `notif_plan_${Date.now()}`,
+
+                    title:
+                        'Plano alterado',
+
+                    message:
+                        'O workspace foi alterado para o Plano Starter Gratuito.',
+
+                    type: 'payment',
+
+                    read: false,
+
+                    createdAt:
+                        new Date().toISOString(),
+
+                    link: '/plans',
+                });
+
+                localStorage.setItem(
+                    'stalmind_app_notifications',
+                    JSON.stringify(
+                        updatedNotifications
+                    )
+                );
+            } catch {
+                // Não interromper a alteração do plano.
+            }
+
+        } catch (error: any) {
+
+            setErrorMessage(
+                error?.message ||
+                'Não foi possível alterar para o Plano Starter.'
+            );
+
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    /*
+     * ============================================================
+     * FECHAR MODAL
+     * ============================================================
+     */
+
+    const closeTrialModal = () => {
+        if (isProcessing) {
+            return;
+        }
+
+        setIsTrialModalOpen(false);
+        setSelectedPlan(null);
+        setTrialResult(null);
+        setTrialSuccess(false);
+        setErrorMessage(null);
+    };
+
+    /*
+     * ============================================================
+     * FORMATAR DATA
+     * ============================================================
+     */
+
+    const formatTrialDate = (
+        value: string | null | undefined
+    ) => {
+        if (!value) {
+            return '—';
+        }
+
+        const date =
+            new Date(value);
+
+        if (
+            Number.isNaN(
+                date.getTime()
+            )
+        ) {
+            return '—';
+        }
+
+        return date.toLocaleDateString(
+            'pt-PT',
+            {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+            }
+        );
+    };
+
+    /*
+     * ============================================================
+     * RENDER
+     * ============================================================
+     */
 
     return (
         <div className="space-y-8 pb-12 max-w-7xl mx-auto">
@@ -458,11 +726,15 @@ export const PlansPage: React.FC = () => {
             {/* =====================================================
                 CABEÇALHO
             ====================================================== */}
+
             <div className="text-center space-y-4 max-w-3xl mx-auto pt-4">
 
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 text-xs font-semibold">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 text-xs font-semibold shadow-xs">
                     <Crown className="w-3.5 h-3.5" />
-                    <span>Planos Comerciais & Subscrição</span>
+
+                    <span>
+                        Planos Comerciais & Subscrição Corporativa
+                    </span>
                 </div>
 
                 <h1 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
@@ -470,70 +742,69 @@ export const PlansPage: React.FC = () => {
                 </h1>
 
                 <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed">
-                    Escolha o plano ideal, experimente gratuitamente por
-                    <strong className="text-indigo-600 dark:text-indigo-400">
-                        {' '}14 dias
-                    </strong>{' '}
-                    e decida depois se quer continuar.
+                    Escolha o plano ideal para o seu negócio.
+                    <br />
+
+                    <strong className="text-emerald-600 dark:text-emerald-400">
+                        Pro e Enterprise têm 14 dias grátis.
+                    </strong>
+
+                    <br />
+
+                    Não existe cobrança durante o período de teste.
                 </p>
 
-                {/* =================================================
-                    STATUS DO PLANO / TRIAL
-                ================================================== */}
-                <div className="flex flex-col items-center gap-3">
+                {/* PLANO ATUAL */}
 
-                    <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300">
+                <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300">
 
-                        <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                    <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
 
-                        <span>
-                            Plano atual:{' '}
-                            <strong className="text-indigo-600 dark:text-indigo-400">
-                                {currentPlanId}
-                            </strong>
-                        </span>
+                    <span>
+                        Plano do Espaço de Trabalho Atual:{' '}
 
-                    </div>
-
-                    {isTrialActive && trialEndsAt && (
-                        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs font-bold text-emerald-700 dark:text-emerald-400">
-
-                            <Gift className="w-4 h-4" />
-
-                            <span>
-                                Teste gratuito ativo —{' '}
-                                {daysRemaining} dias restantes
-                            </span>
-
-                        </div>
-                    )}
-
-                    {trialAlreadyUsed && !isTrialActive && (
-                        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs font-semibold text-amber-700 dark:text-amber-400">
-
-                            <Clock className="w-4 h-4" />
-
-                            <span>
-                                O período de teste gratuito já foi utilizado.
-                            </span>
-
-                        </div>
-                    )}
-
+                        <strong className="text-indigo-600 dark:text-indigo-400 font-bold">
+                            Plano {currentPlanId}
+                        </strong>
+                    </span>
                 </div>
 
-                {/* =================================================
-                    CICLO DE FATURAÇÃO
-                ================================================== */}
+                {/* TRIAL ATIVO */}
+
+                {trialIsActive && (
+                    <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+
+                        <Clock className="w-4 h-4" />
+
+                        <span>
+                            Período de teste ativo:
+                            {' '}
+                            <strong>
+                                {trialDaysRemaining}
+                                {' '}
+                                {trialDaysRemaining === 1
+                                    ? 'dia'
+                                    : 'dias'}
+                            </strong>
+                            {' '}
+                            restantes
+                        </span>
+                    </div>
+                )}
+
+                {/* CICLO */}
+
                 <div className="pt-4 flex items-center justify-center gap-3">
 
                     <button
                         type="button"
-                        onClick={() => setBillingCycle('monthly')}
-                        className={`text-xs sm:text-sm font-semibold cursor-pointer transition-colors ${
+                        onClick={() =>
+                            setBillingCycle('monthly')
+                        }
+                        className={`text-xs sm:text-sm font-semibold transition-colors cursor-pointer ${
                             billingCycle === 'monthly'
                                 ? 'text-slate-900 dark:text-white'
-                                : 'text-slate-400'
+                                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
                         }`}
                     >
                         Faturação Mensal
@@ -541,7 +812,6 @@ export const PlansPage: React.FC = () => {
 
                     <button
                         type="button"
-                        aria-label="Alternar ciclo de faturação"
                         onClick={() =>
                             setBillingCycle(
                                 billingCycle === 'monthly'
@@ -549,14 +819,15 @@ export const PlansPage: React.FC = () => {
                                     : 'monthly'
                             )
                         }
-                        className={`relative inline-flex h-7 w-14 shrink-0 rounded-full transition-colors ${
+                        aria-label="Alternar ciclo de faturação"
+                        className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
                             billingCycle === 'annually'
                                 ? 'bg-indigo-600'
                                 : 'bg-slate-300 dark:bg-slate-700'
                         }`}
                     >
                         <span
-                            className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg transition duration-200 ${
+                            className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
                                 billingCycle === 'annually'
                                     ? 'translate-x-7'
                                     : 'translate-x-0'
@@ -566,51 +837,71 @@ export const PlansPage: React.FC = () => {
 
                     <button
                         type="button"
-                        onClick={() => setBillingCycle('annually')}
-                        className={`flex items-center gap-1.5 text-xs sm:text-sm font-semibold cursor-pointer transition-colors ${
+                        onClick={() =>
+                            setBillingCycle('annually')
+                        }
+                        className={`flex items-center gap-1.5 cursor-pointer text-xs sm:text-sm font-semibold ${
                             billingCycle === 'annually'
                                 ? 'text-slate-900 dark:text-white'
-                                : 'text-slate-400'
+                                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
                         }`}
                     >
-                        Faturação Anual
+                        <span>
+                            Faturação Anual
+                        </span>
 
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold border border-emerald-200 dark:border-emerald-800">
                             Poupe até 20%
                         </span>
                     </button>
-
                 </div>
             </div>
 
             {/* =====================================================
-                CARDS DOS PLANOS
+                CARDS
             ====================================================== */}
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
 
                 {PLAN_TIERS.map((plan) => {
 
-                    const current = isCurrentPlan(plan);
-                    const popular = plan.popular;
+                    const isCurrent =
+                        currentPlanId === plan.id;
+
+                    const isPopular =
+                        plan.popular === true;
+
+                    const isPaid =
+                        plan.id !== 'Starter';
+
+                    const trialAvailable =
+                        isPaid &&
+                        !trialUsed &&
+                        !trialIsActive;
 
                     return (
                         <div
                             key={plan.id}
                             className={`relative rounded-3xl p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 ${
-                                popular
-                                    ? 'bg-gradient-to-b from-indigo-900/10 via-slate-900/90 to-slate-900 border-2 border-indigo-500 shadow-2xl shadow-indigo-500/10'
-                                    : 'bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-lg'
+                                isPopular
+                                    ? 'bg-gradient-to-b from-indigo-900/10 via-slate-900/90 to-slate-900 border-2 border-indigo-500 shadow-2xl shadow-indigo-500/10 dark:from-indigo-950/40 dark:to-slate-900'
+                                    : 'bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-lg'
                             }`}
                         >
 
-                            {popular && (
+                            {/* RECOMENDADO */}
+
+                            {isPopular && (
                                 <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-[11px] font-extrabold uppercase tracking-wider shadow-md flex items-center gap-1">
                                     <Star className="w-3 h-3 fill-current" />
+
                                     Mais Recomendado
                                 </div>
                             )}
 
                             <div>
+
+                                {/* CABEÇALHO */}
 
                                 <div className="flex items-center justify-between gap-2 mb-2">
 
@@ -618,7 +909,7 @@ export const PlansPage: React.FC = () => {
                                         {plan.name}
                                     </h3>
 
-                                    {current && (
+                                    {isCurrent && (
                                         <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold border border-emerald-500/30">
                                             Plano Atual
                                         </span>
@@ -629,6 +920,8 @@ export const PlansPage: React.FC = () => {
                                 <p className="text-xs text-slate-500 dark:text-slate-400 min-h-[36px]">
                                     {plan.tagline}
                                 </p>
+
+                                {/* PREÇO */}
 
                                 <div className="my-6 pb-6 border-b border-slate-100 dark:border-slate-800">
 
@@ -649,11 +942,27 @@ export const PlansPage: React.FC = () => {
                                     {billingCycle === 'annually' &&
                                         plan.monthlyPrice > 0 && (
                                             <p className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1">
-                                                Faturado anualmente (€{getAnnualTotal(plan)}/ano)
+                                                Faturado anualmente
+                                                {' '}
+                                                (€{(
+                                                    plan.annualPriceMonthly *
+                                                    12
+                                                ).toFixed(2)}
+                                                /ano)
                                             </p>
                                         )}
 
+                                    {isPaid && (
+                                        <div className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
+                                            <Gift className="w-3 h-3" />
+
+                                            14 DIAS GRÁTIS
+                                        </div>
+                                    )}
+
                                 </div>
+
+                                {/* FEATURES */}
 
                                 <div className="space-y-3">
 
@@ -664,12 +973,16 @@ export const PlansPage: React.FC = () => {
                                     <ul className="space-y-2.5">
 
                                         {plan.features.map(
-                                            (feature, index) => (
+                                            (
+                                                feature,
+                                                index
+                                            ) => (
                                                 <li
                                                     key={index}
                                                     className="flex items-start gap-2.5 text-xs text-slate-600 dark:text-slate-300"
                                                 >
                                                     <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+
                                                     <span>
                                                         {feature}
                                                     </span>
@@ -683,34 +996,84 @@ export const PlansPage: React.FC = () => {
 
                             </div>
 
+                            {/* =================================================
+                                BOTÃO
+                            ================================================== */}
+
                             <div className="pt-8">
 
                                 <button
                                     type="button"
                                     onClick={() =>
-                                        handleOpenPlan(plan)
+                                        handleStartTrial(plan)
                                     }
-                                    disabled={current}
+                                    disabled={
+                                        isCurrent ||
+                                        isProcessing ||
+                                        (
+                                            isPaid &&
+                                            (
+                                                trialUsed ||
+                                                trialIsActive
+                                            )
+                                        )
+                                    }
                                     className={`w-full py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
-                                        current
+                                        isCurrent ||
+                                        (
+                                            isPaid &&
+                                            (
+                                                trialUsed ||
+                                                trialIsActive
+                                            )
+                                        )
                                             ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
-                                            : popular
+                                            : isPopular
                                                 ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-600/30 cursor-pointer'
                                                 : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white cursor-pointer'
                                     }`}
                                 >
 
-                                    <span>
-                                        {current
-                                            ? 'Plano Atual Ativo'
-                                            : plan.cta}
-                                    </span>
+                                    {isCurrent ? (
+                                        <>
+                                            <CheckCircle2 className="w-4 h-4" />
 
-                                    {!current && (
-                                        <ArrowRight className="w-4 h-4" />
+                                            Plano Atual Ativo
+                                        </>
+                                    ) : isPaid &&
+                                        trialIsActive ? (
+                                        <>
+                                            <Clock className="w-4 h-4" />
+
+                                            Teste em Andamento
+                                        </>
+                                    ) : isPaid &&
+                                        trialUsed ? (
+                                        <>
+                                            <ShieldCheck className="w-4 h-4" />
+
+                                            Teste Já Utilizado
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span>
+                                                {isPaid
+                                                    ? 'Começar 14 Dias Grátis'
+                                                    : plan.cta}
+                                            </span>
+
+                                            <ArrowRight className="w-4 h-4" />
+                                        </>
                                     )}
 
                                 </button>
+
+                                {isPaid &&
+                                    trialAvailable && (
+                                        <p className="text-center text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-2">
+                                            Sem cobrança agora • 14 dias grátis
+                                        </p>
+                                    )}
 
                             </div>
 
@@ -721,43 +1084,47 @@ export const PlansPage: React.FC = () => {
             </div>
 
             {/* =====================================================
-                BANNER 14 DIAS
+                BANNER
             ====================================================== */}
-            <div className="rounded-3xl bg-gradient-to-r from-indigo-950 via-slate-900 to-violet-950 text-white p-6 sm:p-8 border border-indigo-800/50 shadow-xl">
+
+            <div className="rounded-3xl bg-slate-900 text-white p-6 sm:p-8 border border-slate-800 shadow-xl">
 
                 <div className="flex flex-col md:flex-row items-center justify-between gap-6">
 
-                    <div className="text-center md:text-left">
+                    <div className="space-y-2 text-center md:text-left">
 
-                        <div className="flex items-center justify-center md:justify-start gap-2 text-emerald-400 text-xs font-bold uppercase tracking-wider">
+                        <div className="flex items-center justify-center md:justify-start gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wider">
 
                             <Gift className="w-4 h-4" />
 
-                            <span>Teste gratuito</span>
+                            <span>
+                                14 dias grátis
+                            </span>
 
                         </div>
 
-                        <h3 className="text-lg sm:text-xl font-bold mt-2">
-                            Experimente o Pro ou Enterprise por 14 dias
+                        <h3 className="text-lg sm:text-xl font-bold">
+                            Teste o Pro ou Enterprise sem pagar agora
                         </h3>
 
-                        <p className="text-xs text-slate-400 max-w-2xl mt-2">
-                            Não será cobrado nada ao iniciar o teste.
-                            Escolha o plano, ative os 14 dias e decida
-                            depois se deseja continuar.
+                        <p className="text-xs text-slate-400 max-w-2xl">
+                            Escolha o plano, ative o período de teste
+                            gratuito e tenha acesso imediato às
+                            funcionalidades. Nenhum pagamento é realizado
+                            durante os 14 dias.
                         </p>
 
                     </div>
 
-                    <div className="shrink-0 text-center">
+                    <div className="flex flex-col items-center gap-2 shrink-0">
 
-                        <div className="text-4xl font-black">
-                            14
+                        <div className="px-4 py-2 rounded-xl bg-emerald-950/80 border border-emerald-800 text-emerald-400 text-xs font-bold">
+                            14 DIAS
                         </div>
 
-                        <div className="text-[11px] text-slate-400 uppercase tracking-wider">
-                            dias grátis
-                        </div>
+                        <span className="text-[10px] text-slate-500">
+                            Sem cobrança durante o trial
+                        </span>
 
                     </div>
 
@@ -768,6 +1135,7 @@ export const PlansPage: React.FC = () => {
             {/* =====================================================
                 FAQ
             ====================================================== */}
+
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 space-y-6">
 
                 <div className="flex items-center gap-2">
@@ -789,10 +1157,10 @@ export const PlansPage: React.FC = () => {
                         </h4>
 
                         <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
-                            Escolha o Pro ou Enterprise e clique em
-                            “Experimentar 14 Dias Grátis”. O plano é
+                            Ao escolher o Pro ou Enterprise, o plano é
                             ativado imediatamente e você recebe 14 dias
-                            de acesso sem cobrança.
+                            gratuitos para testar todas as funcionalidades
+                            incluídas no plano.
                         </p>
 
                     </div>
@@ -800,12 +1168,14 @@ export const PlansPage: React.FC = () => {
                     <div className="space-y-1">
 
                         <h4 className="font-bold text-slate-900 dark:text-white">
-                            Preciso pagar para iniciar o teste?
+                            Vou pagar alguma coisa agora?
                         </h4>
 
                         <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
-                            Não. O início do período de teste não realiza
-                            nenhuma cobrança.
+                            Não. A ativação do período de teste não realiza
+                            nenhum pagamento. O pagamento só deverá ocorrer
+                            após o término do período de teste caso o cliente
+                            decida continuar com o plano.
                         </p>
 
                     </div>
@@ -817,9 +1187,11 @@ export const PlansPage: React.FC = () => {
                         </h4>
 
                         <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
-                            Ao terminar o teste, o plano entra no ciclo
-                            de cobrança escolhido caso o cliente tenha
-                            uma subscrição de pagamento configurada.
+                            Quando o período terminar, o cliente poderá
+                            continuar com o plano escolhido mediante a
+                            contratação/pagamento correspondente. O sistema
+                            não realiza uma cobrança fictícia durante o
+                            período gratuito.
                         </p>
 
                     </div>
@@ -827,13 +1199,13 @@ export const PlansPage: React.FC = () => {
                     <div className="space-y-1">
 
                         <h4 className="font-bold text-slate-900 dark:text-white">
-                            Posso cancelar antes do fim do teste?
+                            Posso escolher Pro ou Enterprise?
                         </h4>
 
                         <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
-                            Sim. O cliente pode cancelar antes do término
-                            do período de teste sem pagar pelo período
-                            experimental.
+                            Sim. Cada workspace pode utilizar uma única vez
+                            o período de teste gratuito de 14 dias para um
+                            plano pago.
                         </p>
 
                     </div>
@@ -845,76 +1217,122 @@ export const PlansPage: React.FC = () => {
             {/* =====================================================
                 MODAL DO TRIAL
             ====================================================== */}
+
             <Modal
                 isOpen={isTrialModalOpen}
-                onClose={() => {
-                    if (!isStartingTrial) {
-                        setIsTrialModalOpen(false);
-                    }
-                }}
+                onClose={closeTrialModal}
                 title={
-                    trialStarted
-                        ? 'Teste gratuito ativado!'
-                        : `Experimentar ${selectedPlan?.name || ''}`
+                    trialSuccess
+                        ? 'Período de teste ativado'
+                        : `Ativar ${selectedPlan?.name ?? 'Plano'}`
                 }
             >
 
-                {trialStarted && trialResult ? (
+                {/* =================================================
+                    ERRO
+                ================================================== */}
 
-                    <div className="text-center py-6 space-y-5">
+                {errorMessage && !trialSuccess && (
+                    <div className="mb-5 p-4 rounded-2xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 text-xs">
 
-                        <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-500 flex items-center justify-center mx-auto">
-                            <CheckCircle2 className="w-10 h-10" />
+                        <div className="flex items-start gap-2">
+
+                            <X className="w-4 h-4 shrink-0 mt-0.5" />
+
+                            <span>
+                                {errorMessage}
+                            </span>
+
+                        </div>
+
+                    </div>
+                )}
+
+                {/* =================================================
+                    SUCESSO
+                ================================================== */}
+
+                {trialSuccess ? (
+
+                    <div className="text-center py-5 space-y-5">
+
+                        <div className="w-20 h-20 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-500 flex items-center justify-center mx-auto">
+
+                            <CheckCircle2 className="w-11 h-11" />
+
                         </div>
 
                         <div className="space-y-2">
 
-                            <h3 className="text-xl font-bold text-slate-900 dark:text-white">
-                                🎉 Os seus 14 dias começaram!
+                            <h3 className="text-2xl font-black text-slate-900 dark:text-white">
+                                14 dias grátis ativados!
                             </h3>
 
                             <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                                O plano{' '}
+                                O seu workspace agora está no plano
+                                {' '}
                                 <strong className="text-indigo-600 dark:text-indigo-400">
                                     {selectedPlan?.name}
-                                </strong>{' '}
-                                foi ativado gratuitamente.
+                                </strong>
+                                {' '}
+                                sem qualquer cobrança.
                             </p>
 
                         </div>
 
-                        <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 max-w-sm mx-auto space-y-3">
+                        <div className="p-5 bg-emerald-50 dark:bg-emerald-950/30 rounded-2xl border border-emerald-200 dark:border-emerald-900 text-left space-y-3">
 
-                            <div className="flex items-center justify-center gap-2 text-emerald-700 dark:text-emerald-400 font-bold">
+                            <div className="flex justify-between gap-4 text-xs">
 
-                                <Gift className="w-5 h-5" />
+                                <span className="text-slate-500 dark:text-slate-400">
+                                    Plano
+                                </span>
 
-                                14 dias gratuitos
+                                <strong className="text-slate-900 dark:text-white">
+                                    {selectedPlan?.name}
+                                </strong>
 
                             </div>
 
-                            <div className="text-xs text-slate-600 dark:text-slate-300">
+                            <div className="flex justify-between gap-4 text-xs">
 
-                                <div>
-                                    Início:{' '}
-                                    <strong>
-                                        {formatDate(
-                                            trialResult.trial_started_at
-                                        )}
-                                    </strong>
-                                </div>
+                                <span className="text-slate-500 dark:text-slate-400">
+                                    Período
+                                </span>
 
-                                <div className="mt-1">
+                                <strong className="text-emerald-600 dark:text-emerald-400">
+                                    14 dias grátis
+                                </strong>
 
-                                    Término:{' '}
+                            </div>
 
-                                    <strong>
-                                        {formatDate(
-                                            trialResult.trial_ends_at
-                                        )}
-                                    </strong>
+                            <div className="flex justify-between gap-4 text-xs">
 
-                                </div>
+                                <span className="text-slate-500 dark:text-slate-400">
+                                    Início
+                                </span>
+
+                                <strong className="text-slate-900 dark:text-white text-right">
+                                    {formatTrialDate(
+                                        trialResult?.trial_started_at ??
+                                        trialStartedAt
+                                    )}
+                                </strong>
+
+                            </div>
+
+                            <div className="flex justify-between gap-4 text-xs pt-3 border-t border-emerald-200 dark:border-emerald-900">
+
+                                <span className="text-slate-500 dark:text-slate-400">
+                                    Termina em
+                                </span>
+
+                                <strong className="text-slate-900 dark:text-white text-right">
+                                    {formatTrialDate(
+                                        trialResult?.trial_ends_at ??
+                                        trialEndsAt
+                                    )}
+                                </strong>
 
                             </div>
 
@@ -922,132 +1340,119 @@ export const PlansPage: React.FC = () => {
 
                         <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300">
 
-                            <p>
-                                <strong>
-                                    Não foi realizado nenhum pagamento.
-                                </strong>
-                            </p>
+                            <div className="flex items-start gap-2">
 
-                            <p className="mt-1">
-                                Você poderá decidir continuar com o plano
-                                após o período de teste.
-                            </p>
+                                <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+
+                                <span>
+                                    Nenhum pagamento foi realizado.
+                                    Durante os próximos 14 dias você pode
+                                    utilizar o plano gratuitamente.
+                                </span>
+
+                            </div>
 
                         </div>
 
                         <button
                             type="button"
-                            onClick={() =>
-                                setIsTrialModalOpen(false)
-                            }
-                            className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all"
+                            onClick={closeTrialModal}
+                            className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all cursor-pointer"
                         >
-                            Continuar para o Dashboard
+                            Começar a utilizar o plano
                         </button>
 
                     </div>
 
                 ) : (
 
-                    <div className="space-y-6">
+                    /* =================================================
+                       CONFIRMAÇÃO
+                    ================================================== */
 
-                        {/* RESUMO */}
+                    <div className="space-y-5">
 
                         <div className="p-5 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/60">
 
-                            <div className="flex items-start justify-between gap-4">
+                            <div className="flex items-start gap-3">
 
-                                <div>
+                                <div className="w-11 h-11 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
 
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-                                        Teste gratuito
-                                    </span>
-
-                                    <h4 className="text-lg font-bold text-slate-900 dark:text-white mt-1">
-                                        {selectedPlan?.name}
-                                    </h4>
+                                    <Crown className="w-5 h-5" />
 
                                 </div>
 
-                                <div className="text-right">
+                                <div>
 
-                                    <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
-                                        €0,00
-                                    </div>
+                                    <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+                                        Plano selecionado
+                                    </p>
 
-                                    <div className="text-[10px] text-slate-500">
-                                        durante 14 dias
-                                    </div>
+                                    <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                                        {selectedPlan?.name}
+                                    </h3>
+
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                        {selectedPlan?.tagline}
+                                    </p>
 
                                 </div>
 
                             </div>
 
                         </div>
-
-                        {/* BENEFÍCIOS */}
 
                         <div className="space-y-3">
 
-                            <div className="flex items-start gap-3">
+                            <div className="flex items-center gap-3 p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900">
 
-                                <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center shrink-0">
-                                    <Gift className="w-4 h-4 text-emerald-500" />
-                                </div>
+                                <Gift className="w-5 h-5 text-emerald-500 shrink-0" />
 
                                 <div>
 
-                                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                                        14 dias totalmente gratuitos
-                                    </h4>
+                                    <strong className="block text-sm text-emerald-700 dark:text-emerald-300">
+                                        14 dias totalmente grátis
+                                    </strong>
 
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                        Tenha acesso ao plano escolhido
-                                        sem cobrança durante o período
-                                        experimental.
-                                    </p>
+                                    <span className="text-xs text-emerald-600/80 dark:text-emerald-400/80">
+                                        Acesso imediato ao plano.
+                                    </span>
 
                                 </div>
 
                             </div>
 
-                            <div className="flex items-start gap-3">
+                            <div className="flex items-center gap-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
 
-                                <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-950/40 flex items-center justify-center shrink-0">
-                                    <CheckCircle2 className="w-4 h-4 text-indigo-500" />
-                                </div>
+                                <ShieldCheck className="w-5 h-5 text-indigo-500 shrink-0" />
 
                                 <div>
 
-                                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                                        Ativação imediata
-                                    </h4>
+                                    <strong className="block text-sm text-slate-800 dark:text-slate-200">
+                                        Nenhum pagamento agora
+                                    </strong>
 
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                        Assim que confirmar, o plano fica
-                                        disponível imediatamente.
-                                    </p>
+                                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                                        O período de teste começa imediatamente.
+                                    </span>
 
                                 </div>
 
                             </div>
 
-                            <div className="flex items-start gap-3">
+                            <div className="flex items-center gap-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
 
-                                <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center shrink-0">
-                                    <Clock className="w-4 h-4 text-amber-500" />
-                                </div>
+                                <Clock className="w-5 h-5 text-indigo-500 shrink-0" />
 
                                 <div>
 
-                                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                                        Sem cobrança agora
-                                    </h4>
+                                    <strong className="block text-sm text-slate-800 dark:text-slate-200">
+                                        Após os 14 dias
+                                    </strong>
 
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                        Nenhum pagamento é processado ao
-                                        iniciar o período experimental.
-                                    </p>
+                                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                                        Você poderá continuar com o plano mediante pagamento.
+                                    </span>
 
                                 </div>
 
@@ -1055,79 +1460,78 @@ export const PlansPage: React.FC = () => {
 
                         </div>
 
-                        {/* ALERTA */}
+                        <div className="p-4 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
 
-                        <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-start gap-3">
+                            <div className="flex justify-between items-center">
 
-                            <ShieldCheck className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
-
-                            <div className="text-xs text-slate-600 dark:text-slate-300">
-
-                                <strong className="text-slate-900 dark:text-white">
-                                    Como funciona:
-                                </strong>
-
-                                <p className="mt-1">
-                                    Clique em “Começar 14 Dias Grátis”.
-                                    O período começa imediatamente.
-                                    Depois dos 14 dias, você decide se
-                                    quer continuar com a subscrição.
-                                </p>
-
-                            </div>
-
-                        </div>
-
-                        {/* ERRO */}
-
-                        {errorMessage && (
-
-                            <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 flex items-start gap-2 text-xs text-red-700 dark:text-red-400">
-
-                                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-
-                                <span>
-                                    {errorMessage}
+                                <span className="text-xs text-slate-500 dark:text-slate-400">
+                                    Valor após o trial
                                 </span>
 
+                                <strong className="text-lg font-black text-slate-900 dark:text-white">
+                                    {selectedPlan &&
+                                        getPlanPrice(
+                                            selectedPlan
+                                        )}
+
+                                    <span className="text-xs font-normal text-slate-500">
+                                        /mês
+                                    </span>
+                                </strong>
+
                             </div>
 
-                        )}
+                            {billingCycle === 'annually' &&
+                                selectedPlan &&
+                                selectedPlan.monthlyPrice > 0 && (
+                                    <p className="text-[10px] text-indigo-500 mt-1 text-right">
+                                        Ciclo anual:
+                                        {' '}
+                                        €{(
+                                            selectedPlan.annualPriceMonthly *
+                                            12
+                                        ).toFixed(2)}
+                                        /ano
+                                    </p>
+                                )}
 
-                        {/* BOTÃO */}
+                        </div>
 
-                        <button
-                            type="button"
-                            onClick={handleStartTrial}
-                            disabled={
-                                isStartingTrial ||
-                                !selectedPlan ||
-                                trialAlreadyUsed ||
-                                isTrialActive
-                            }
-                            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2"
-                        >
+                        <div className="flex flex-col sm:flex-row gap-3">
 
-                            {isStartingTrial ? (
-                                <>
-                                    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                                    A iniciar os 14 dias...
-                                </>
-                            ) : (
-                                <>
-                                    <Gift className="w-4 h-4" />
-                                    Começar 14 Dias Grátis
-                                </>
-                            )}
+                            <button
+                                type="button"
+                                onClick={closeTrialModal}
+                                disabled={isProcessing}
+                                className="w-full py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer disabled:opacity-50"
+                            >
+                                Cancelar
+                            </button>
 
-                        </button>
+                            <button
+                                type="button"
+                                onClick={confirmStartTrial}
+                                disabled={isProcessing}
+                                className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-bold transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                            >
 
-                        {trialAlreadyUsed && (
-                            <p className="text-center text-[11px] text-amber-600 dark:text-amber-400">
-                                Este workspace já utilizou o período
-                                gratuito.
-                            </p>
-                        )}
+                                {isProcessing ? (
+                                    <>
+                                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+
+                                        Ativando 14 dias grátis...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Gift className="w-4 h-4" />
+
+                                        Ativar 14 Dias Grátis
+                                    </>
+                                )}
+
+                            </button>
+
+                        </div>
 
                     </div>
                 )}
