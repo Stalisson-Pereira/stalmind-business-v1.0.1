@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../contexts/AuthContext';
-import { ThemeToggle } from '../../components/ui/ThemeToggle';
+import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { NotificationsPopover } from '../../components/common/NotificationsPopover';
 
 interface DashboardLayoutProps {
