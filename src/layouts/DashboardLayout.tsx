@@ -101,7 +101,6 @@ export const DashboardLayout: React.FC<
       path: '/reports',
       label: 'Relatórios',
       icon: BarChart2,
-      comingSoon: true,
     },
     {
       path: '/settings',
@@ -239,11 +238,6 @@ export const DashboardLayout: React.FC<
                     </span>
                   )}
 
-                  {item.comingSoon && (
-                    <span className="ml-2 text-[8px] font-medium px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 shrink-0">
-                      Em breve
-                    </span>
-                  )}
                 </button>
               );
             })}
