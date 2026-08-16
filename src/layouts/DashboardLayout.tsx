@@ -17,7 +17,7 @@ import {
   LogOut,
 } from 'lucide-react';
 
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 import { ThemeToggle } from '../ui/ThemeToggle';
 import { NotificationsPopover } from '../common/NotificationsPopover';
 
