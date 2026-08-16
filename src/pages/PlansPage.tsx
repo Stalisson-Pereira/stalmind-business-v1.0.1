@@ -1,27 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { notificationService } from '../services/notificationService';
 import { Modal } from '../components/common/Modal';
+import { supabase } from '../lib/supabaseClient';
 import {
     Crown,
     Check,
-    Zap,
     ShieldCheck,
-    CreditCard,
-    QrCode,
-    Copy,
-    CheckCircle2,
-    Lock,
     ArrowRight,
     HelpCircle,
     Clock,
-    ExternalLink,
-    ChevronRight,
-    Building,
-    Smartphone,
-    Star,
-    RefreshCw,
+    CheckCircle2,
     Gift,
+    Star,
+    AlertCircle,
 } from 'lucide-react';
 
 export interface PlanTier {
@@ -29,7 +21,7 @@ export interface PlanTier {
     name: string;
     tagline: string;
     monthlyPrice: number;
-    annualPriceMonthly: number; // price per month when billed annually
+    annualPriceMonthly: number;
     popular?: boolean;
     features: string[];
     cta: string;
@@ -63,14 +55,14 @@ const PLAN_TIERS: PlanTier[] = [
         popular: true,
         features: [
             'Clientes e orçamentos ilimitados',
-            'Assistente IA Ilimitado (Gemini 2.5/3 Pro)',
+            'Assistente IA Ilimitado',
             'Links de Pagamento & Cobranças Automáticas',
             'Integrações PIX, PayPal, Stripe e SumUp',
             'Lembretes por WhatsApp & E-mail',
             'Relatórios e Análise Financeira',
             'Suporte Prioritário 24/7',
         ],
-        cta: 'Ativar Plano Pro',
+        cta: 'Experimentar 14 Dias Grátis',
         color: 'indigo',
     },
     {
@@ -88,154 +80,389 @@ const PLAN_TIERS: PlanTier[] = [
             'Gerente de Conta Dedicado',
             'SLA de suporte garantido em 1h',
         ],
-        cta: 'Ativar Enterprise',
+        cta: 'Experimentar 14 Dias Grátis',
         color: 'violet',
     },
 ];
 
-type PaymentGatewayType = 'pix' | 'paypal' | 'stripe' | 'sumup';
+type TrialPlan = 'pro' | 'business';
+
+interface TrialResult {
+    success: boolean;
+    workspace_id: string;
+    plan: TrialPlan;
+    trial_used: boolean;
+    trial_started_at: string;
+    trial_ends_at: string;
+    days: number;
+}
+
+interface WorkspaceWithTrial {
+    id?: string;
+    plan?: string;
+    planBilling?: 'monthly' | 'annually';
+    trial_used?: boolean;
+    trial_started_at?: string | null;
+    trial_ends_at?: string | null;
+}
+
+const TRIAL_DAYS = 14;
+
+const PLAN_TO_RPC: Record<'Pro' | 'Enterprise', TrialPlan> = {
+    Pro: 'pro',
+    Enterprise: 'business',
+};
 
 export const PlansPage: React.FC = () => {
     const { workspace, updateWorkspace } = useAuth();
-    const [billingCycle, setBillingCycle] = useState<'monthly' | 'annually'>('monthly');
 
-    // Selected plan for checkout modal
+    const workspaceWithTrial = workspace as WorkspaceWithTrial | null;
+
+    const [billingCycle, setBillingCycle] = useState<'monthly' | 'annually'>(
+        workspaceWithTrial?.planBilling || 'monthly'
+    );
+
     const [selectedPlan, setSelectedPlan] = useState<PlanTier | null>(null);
-    const [activeGateway, setActiveGateway] = useState<PaymentGatewayType>('pix');
-    const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
+    const [isTrialModalOpen, setIsTrialModalOpen] = useState(false);
 
-    // Stripe form state
-    const [cardName, setCardName] = useState('');
-    const [cardNumber, setCardNumber] = useState('');
-    const [cardExpiry, setCardExpiry] = useState('');
-    const [cardCvc, setCardCvc] = useState('');
-    const [saveCard, setSaveCard] = useState(true);
+    const [isStartingTrial, setIsStartingTrial] = useState(false);
+    const [trialStarted, setTrialStarted] = useState(false);
+    const [trialResult, setTrialResult] = useState<TrialResult | null>(null);
 
-    // PayPal form state
-    const [paypalEmail, setPaypalEmail] = useState('cliente@stalmind.com');
+    const [errorMessage, setErrorMessage] = useState('');
 
-    // SumUp form state
-    const [sumupInstallments, setSumupInstallments] = useState('1');
+    const currentPlanId = useMemo(() => {
+        const plan = workspaceWithTrial?.plan;
 
-    // Pix state
-    const [pixCopied, setPixCopied] = useState(false);
-    const [pixTimer, setPixTimer] = useState(899); // 15 mins in seconds
-
-    // Processing & success states
-    const [isProcessing, setIsProcessing] = useState(false);
-    const [checkoutSuccess, setCheckoutSuccess] = useState(false);
-
-    // Pix Countdown effect
-    useEffect(() => {
-        let interval: NodeJS.Timeout;
-        if (isCheckoutModalOpen && activeGateway === 'pix' && pixTimer > 0) {
-            interval = setInterval(() => {
-                setPixTimer((prev) => (prev > 0 ? prev - 1 : 0));
-            }, 1000);
+        if (!plan) {
+            return 'Starter';
         }
-        return () => clearInterval(interval);
-    }, [isCheckoutModalOpen, activeGateway, pixTimer]);
 
-    const currentPlanId = workspace?.plan || 'Pro';
+        const normalized = String(plan).toLowerCase();
 
-    const formatPixTimer = (seconds: number) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        if (normalized === 'pro') {
+            return 'Pro';
+        }
+
+        if (
+            normalized === 'enterprise' ||
+            normalized === 'business'
+        ) {
+            return 'Enterprise';
+        }
+
+        return 'Starter';
+    }, [workspaceWithTrial?.plan]);
+
+    const trialEndsAt = useMemo(() => {
+        if (!workspaceWithTrial?.trial_ends_at) {
+            return null;
+        }
+
+        const date = new Date(workspaceWithTrial.trial_ends_at);
+
+        if (Number.isNaN(date.getTime())) {
+            return null;
+        }
+
+        return date;
+    }, [workspaceWithTrial?.trial_ends_at]);
+
+    const isTrialActive = useMemo(() => {
+        if (!trialEndsAt) {
+            return false;
+        }
+
+        return trialEndsAt.getTime() > Date.now();
+    }, [trialEndsAt]);
+
+    const trialAlreadyUsed = Boolean(
+        workspaceWithTrial?.trial_used
+    );
+
+    const getDaysRemaining = (date: Date | null) => {
+        if (!date) {
+            return 0;
+        }
+
+        const difference = date.getTime() - Date.now();
+
+        if (difference <= 0) {
+            return 0;
+        }
+
+        return Math.ceil(
+            difference / (1000 * 60 * 60 * 24)
+        );
     };
 
-    const handleOpenCheckout = (plan: PlanTier) => {
-        if (plan.id === currentPlanId && workspace?.planBilling === billingCycle) {
-            return; // already active
-        }
-        if (plan.id === 'Starter') {
-            // Downgrade or switch to free starter instantly
-            handleCompletePlanUpgrade(plan, 'Grátis');
+    const daysRemaining = getDaysRemaining(trialEndsAt);
+
+    useEffect(() => {
+        if (!trialEndsAt || !isTrialActive) {
             return;
         }
-        setSelectedPlan(plan);
-        setCheckoutSuccess(false);
-        setIsProcessing(false);
-        setIsCheckoutModalOpen(true);
-    };
 
-    const handleCopyPixKey = () => {
-        const pixKey =
-            '00020126580014BR.GOV.BCB.PIX0136stalmind-planos-checkout-88392103520400005303986540549.005802BR5920Stalmind Tecnologia6009SAO PAULO62070503***6304E8A9';
-        navigator.clipboard.writeText(pixKey);
-        setPixCopied(true);
-        setTimeout(() => setPixCopied(false), 3000);
-    };
+        const interval = window.setInterval(() => {
+            // Atualiza o componente periodicamente para o contador
+            // refletir a passagem dos dias sem recarregar a página.
+            setTrialResult((current) => current);
+        }, 60_000);
 
-    const handleProcessPayment = async () => {
-        if (!selectedPlan) return;
-        setIsProcessing(true);
+        return () => window.clearInterval(interval);
+    }, [trialEndsAt, isTrialActive]);
 
-        // Simulate API network call
-        setTimeout(async () => {
-            const gatewayNames: Record<PaymentGatewayType, string> = {
-                pix: 'PIX Instantâneo',
-                paypal: 'PayPal Express',
-                stripe: 'Stripe (Cartão de Crédito)',
-                sumup: 'SumUp Pay',
-            };
+    const formatDate = (value: string | Date | null | undefined) => {
+        if (!value) {
+            return '';
+        }
 
-            await handleCompletePlanUpgrade(selectedPlan, gatewayNames[activeGateway]);
-            setIsProcessing(false);
-            setCheckoutSuccess(true);
-        }, 1800);
-    };
+        const date =
+            value instanceof Date
+                ? value
+                : new Date(value);
 
-    const handleCompletePlanUpgrade = async (plan: PlanTier, gatewayName: string) => {
-        await updateWorkspace({
-            plan: plan.id,
-            planBilling: billingCycle,
+        if (Number.isNaN(date.getTime())) {
+            return '';
+        }
+
+        return date.toLocaleDateString('pt-PT', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
         });
-
-        // Fire notification in workspace
-        const isFree = plan.id === 'Starter';
-        notificationService.getNotifications();
-        const updatedNotifs = notificationService.getNotifications();
-        updatedNotifs.unshift({
-            id: `notif_${Date.now()}`,
-            title: isFree ? 'Plano Alterado' : 'Subscrição Atualizada com Sucesso! 🎉',
-            message: isFree
-                ? 'A sua conta foi alterada para o Plano Starter Gratuito.'
-                : `Ativou o ${plan.name} (${billingCycle === 'annually' ? 'Anual' : 'Mensal'}) via ${gatewayName}.`,
-            type: 'payment',
-            read: false,
-            createdAt: new Date().toISOString(),
-            link: '/plans',
-        });
-        localStorage.setItem('stalmind_app_notifications', JSON.stringify(updatedNotifs));
     };
 
     const getPlanPrice = (plan: PlanTier) => {
-        const price = billingCycle === 'annually' ? plan.annualPriceMonthly : plan.monthlyPrice;
-        if (price === 0) return 'Gratuito';
+        const price =
+            billingCycle === 'annually'
+                ? plan.annualPriceMonthly
+                : plan.monthlyPrice;
+
+        if (price === 0) {
+            return 'Gratuito';
+        }
+
         return `€${price.toFixed(2)}`;
     };
 
-    const formatCardNumber = (val: string) => {
-        const digits = val.replace(/\D/g, '').slice(0, 16);
-        return digits.replace(/(\d{4})(?=\d)/g, '$1 ').trim();
+    const getAnnualTotal = (plan: PlanTier) => {
+        return (plan.annualPriceMonthly * 12).toFixed(2);
     };
 
-    const formatExpiry = (val: string) => {
-        const digits = val.replace(/\D/g, '').slice(0, 4);
-        if (digits.length >= 3) {
-            return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+    const isCurrentPlan = (plan: PlanTier) => {
+        return currentPlanId === plan.id;
+    };
+
+    const canStartTrial = (plan: PlanTier) => {
+        if (plan.id === 'Starter') {
+            return false;
         }
-        return digits;
+
+        if (trialAlreadyUsed) {
+            return false;
+        }
+
+        if (isTrialActive) {
+            return false;
+        }
+
+        return true;
+    };
+
+    const handleStarterActivation = async () => {
+        if (currentPlanId === 'Starter') {
+            return;
+        }
+
+        try {
+            setErrorMessage('');
+
+            await updateWorkspace({
+                plan: 'Starter',
+                planBilling: 'monthly',
+            });
+
+            const notifications =
+                notificationService.getNotifications();
+
+            notifications.unshift({
+                id: `notif_${Date.now()}`,
+                title: 'Plano alterado',
+                message:
+                    'O espaço de trabalho foi alterado para o Plano Starter Gratuito.',
+                type: 'payment',
+                read: false,
+                createdAt: new Date().toISOString(),
+                link: '/plans',
+            });
+
+            localStorage.setItem(
+                'stalmind_app_notifications',
+                JSON.stringify(notifications)
+            );
+        } catch (error) {
+            console.error(
+                '[PlansPage] Erro ao ativar Starter:',
+                error
+            );
+
+            setErrorMessage(
+                'Não foi possível alterar para o Plano Starter.'
+            );
+        }
+    };
+
+    const handleOpenPlan = (plan: PlanTier) => {
+        setErrorMessage('');
+        setTrialStarted(false);
+        setTrialResult(null);
+
+        if (plan.id === 'Starter') {
+            void handleStarterActivation();
+            return;
+        }
+
+        if (isCurrentPlan(plan)) {
+            return;
+        }
+
+        if (trialAlreadyUsed) {
+            setSelectedPlan(plan);
+            setIsTrialModalOpen(true);
+            return;
+        }
+
+        setSelectedPlan(plan);
+        setIsTrialModalOpen(true);
+    };
+
+    const handleStartTrial = async () => {
+        if (!selectedPlan || !workspace?.id) {
+            setErrorMessage(
+                'Não foi possível identificar o espaço de trabalho.'
+            );
+            return;
+        }
+
+        if (selectedPlan.id === 'Starter') {
+            return;
+        }
+
+        if (trialAlreadyUsed) {
+            setErrorMessage(
+                'Este espaço de trabalho já utilizou o período de teste gratuito.'
+            );
+            return;
+        }
+
+        if (isTrialActive) {
+            setErrorMessage(
+                'Este espaço de trabalho já possui um período de teste ativo.'
+            );
+            return;
+        }
+
+        setIsStartingTrial(true);
+        setErrorMessage('');
+
+        try {
+            const rpcPlan = PLAN_TO_RPC[selectedPlan.id];
+
+            /*
+             * IMPORTANTE:
+             *
+             * A RPC é responsável por:
+             * - validar o utilizador;
+             * - validar a membership;
+             * - impedir segundo trial;
+             * - ativar o plano;
+             * - marcar trial_used;
+             * - registrar trial_started_at;
+             * - registrar trial_ends_at;
+             * - definir 14 dias.
+             *
+             * Portanto NÃO fazemos pagamento aqui.
+             */
+            const { data, error } = await supabase.rpc(
+                'start_workspace_trial',
+                {
+                    target_workspace: workspace.id,
+                    selected_plan: rpcPlan,
+                }
+            );
+
+            if (error) {
+                throw error;
+            }
+
+            const result = data as TrialResult;
+
+            if (!result?.success) {
+                throw new Error(
+                    'Não foi possível iniciar o período de teste.'
+                );
+            }
+
+            /*
+             * Mantém o estado global do workspace sincronizado.
+             *
+             * O banco continua sendo a fonte oficial do trial.
+             */
+            await updateWorkspace({
+                plan: selectedPlan.id,
+                planBilling: billingCycle,
+            });
+
+            setTrialResult(result);
+            setTrialStarted(true);
+
+            const notifications =
+                notificationService.getNotifications();
+
+            notifications.unshift({
+                id: `notif_${Date.now()}`,
+                title: '🎉 Teste gratuito ativado',
+                message: `O ${selectedPlan.name} foi ativado por 14 dias gratuitamente. O período termina em ${formatDate(
+                    result.trial_ends_at
+                )}.`,
+                type: 'payment',
+                read: false,
+                createdAt: new Date().toISOString(),
+                link: '/plans',
+            });
+
+            localStorage.setItem(
+                'stalmind_app_notifications',
+                JSON.stringify(notifications)
+            );
+        } catch (error: any) {
+            console.error(
+                '[PlansPage] Erro ao iniciar trial:',
+                error
+            );
+
+            const message =
+                error?.message ||
+                'Não foi possível iniciar o período de teste gratuito.';
+
+            setErrorMessage(message);
+        } finally {
+            setIsStartingTrial(false);
+        }
     };
 
     return (
         <div className="space-y-8 pb-12 max-w-7xl mx-auto">
-            {/* Page Header */}
+
+            {/* =====================================================
+                CABEÇALHO
+            ====================================================== */}
             <div className="text-center space-y-4 max-w-3xl mx-auto pt-4">
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 text-xs font-semibold shadow-xs">
+
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 text-xs font-semibold">
                     <Crown className="w-3.5 h-3.5" />
-                    <span>Planos Comerciais & Subscrição Corporativa</span>
+                    <span>Planos Comerciais & Subscrição</span>
                 </div>
 
                 <h1 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
@@ -243,76 +470,140 @@ export const PlansPage: React.FC = () => {
                 </h1>
 
                 <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed">
-                    Subscreva sem fidelização. Mude de plano ou cancele quando quiser com suporte total para
-                    <span className="font-bold text-slate-800 dark:text-slate-200"> PIX, PayPal, Stripe e SumUp</span>.
+                    Escolha o plano ideal, experimente gratuitamente por
+                    <strong className="text-indigo-600 dark:text-indigo-400">
+                        {' '}14 dias
+                    </strong>{' '}
+                    e decida depois se quer continuar.
                 </p>
 
-                {/* Current Plan Indicator Banner */}
-                <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300">
-                    <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
-                    <span>
-                        Plano do Espaço de Trabalho Atual:{' '}
-                        <strong className="text-indigo-600 dark:text-indigo-400 font-bold">
-                            Plano {currentPlanId}
-                        </strong>
-                    </span>
+                {/* =================================================
+                    STATUS DO PLANO / TRIAL
+                ================================================== */}
+                <div className="flex flex-col items-center gap-3">
+
+                    <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300">
+
+                        <ShieldCheck className="w-4 h-4 text-emerald-500" />
+
+                        <span>
+                            Plano atual:{' '}
+                            <strong className="text-indigo-600 dark:text-indigo-400">
+                                {currentPlanId}
+                            </strong>
+                        </span>
+
+                    </div>
+
+                    {isTrialActive && trialEndsAt && (
+                        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+
+                            <Gift className="w-4 h-4" />
+
+                            <span>
+                                Teste gratuito ativo —{' '}
+                                {daysRemaining} dias restantes
+                            </span>
+
+                        </div>
+                    )}
+
+                    {trialAlreadyUsed && !isTrialActive && (
+                        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs font-semibold text-amber-700 dark:text-amber-400">
+
+                            <Clock className="w-4 h-4" />
+
+                            <span>
+                                O período de teste gratuito já foi utilizado.
+                            </span>
+
+                        </div>
+                    )}
+
                 </div>
 
-                {/* Billing Cycle Switcher */}
+                {/* =================================================
+                    CICLO DE FATURAÇÃO
+                ================================================== */}
                 <div className="pt-4 flex items-center justify-center gap-3">
-                    <span
-                        onClick={() => setBillingCycle('monthly')}
-                        className={`text-xs sm:text-sm font-semibold cursor-pointer transition-colors ${billingCycle === 'monthly'
-                                ? 'text-slate-900 dark:text-white'
-                                : 'text-slate-400 hover:text-slate-600'
-                            }`}
-                    >
-                        Faturação Mensal
-                    </span>
 
                     <button
-                        onClick={() => setBillingCycle(billingCycle === 'monthly' ? 'annually' : 'monthly')}
-                        className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${billingCycle === 'annually' ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'
-                            }`}
+                        type="button"
+                        onClick={() => setBillingCycle('monthly')}
+                        className={`text-xs sm:text-sm font-semibold cursor-pointer transition-colors ${
+                            billingCycle === 'monthly'
+                                ? 'text-slate-900 dark:text-white'
+                                : 'text-slate-400'
+                        }`}
+                    >
+                        Faturação Mensal
+                    </button>
+
+                    <button
+                        type="button"
+                        aria-label="Alternar ciclo de faturação"
+                        onClick={() =>
+                            setBillingCycle(
+                                billingCycle === 'monthly'
+                                    ? 'annually'
+                                    : 'monthly'
+                            )
+                        }
+                        className={`relative inline-flex h-7 w-14 shrink-0 rounded-full transition-colors ${
+                            billingCycle === 'annually'
+                                ? 'bg-indigo-600'
+                                : 'bg-slate-300 dark:bg-slate-700'
+                        }`}
                     >
                         <span
-                            className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${billingCycle === 'annually' ? 'translate-x-7' : 'translate-x-0'
-                                }`}
+                            className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg transition duration-200 ${
+                                billingCycle === 'annually'
+                                    ? 'translate-x-7'
+                                    : 'translate-x-0'
+                            }`}
                         />
                     </button>
 
-                    <div className="flex items-center gap-1.5 cursor-pointer" onClick={() => setBillingCycle('annually')}>
-                        <span
-                            className={`text-xs sm:text-sm font-semibold transition-colors ${billingCycle === 'annually'
-                                    ? 'text-slate-900 dark:text-white'
-                                    : 'text-slate-400 hover:text-slate-600'
-                                }`}
-                        >
-                            Faturação Anual
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold border border-emerald-200 dark:border-emerald-800 animate-pulse">
+                    <button
+                        type="button"
+                        onClick={() => setBillingCycle('annually')}
+                        className={`flex items-center gap-1.5 text-xs sm:text-sm font-semibold cursor-pointer transition-colors ${
+                            billingCycle === 'annually'
+                                ? 'text-slate-900 dark:text-white'
+                                : 'text-slate-400'
+                        }`}
+                    >
+                        Faturação Anual
+
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">
                             Poupe até 20%
                         </span>
-                    </div>
+                    </button>
+
                 </div>
             </div>
 
-            {/* Plan Cards Grid */}
+            {/* =====================================================
+                CARDS DOS PLANOS
+            ====================================================== */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
+
                 {PLAN_TIERS.map((plan) => {
-                    const isCurrent = workspace?.plan === plan.id;
-                    const isPopular = plan.popular;
+
+                    const current = isCurrentPlan(plan);
+                    const popular = plan.popular;
 
                     return (
                         <div
                             key={plan.id}
-                            className={`relative rounded-3xl p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 ${isPopular
-                                    ? 'bg-gradient-to-b from-indigo-900/10 via-slate-900/90 to-slate-900 border-2 border-indigo-500 shadow-2xl shadow-indigo-500/10 dark:from-indigo-950/40 dark:to-slate-900'
-                                    : 'bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-lg'
-                                }`}
+                            className={`relative rounded-3xl p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 ${
+                                popular
+                                    ? 'bg-gradient-to-b from-indigo-900/10 via-slate-900/90 to-slate-900 border-2 border-indigo-500 shadow-2xl shadow-indigo-500/10'
+                                    : 'bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-lg'
+                            }`}
                         >
-                            {/* Popular Badge */}
-                            {isPopular && (
+
+                            {popular && (
                                 <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-[11px] font-extrabold uppercase tracking-wider shadow-md flex items-center gap-1">
                                     <Star className="w-3 h-3 fill-current" />
                                     Mais Recomendado
@@ -320,581 +611,529 @@ export const PlansPage: React.FC = () => {
                             )}
 
                             <div>
-                                {/* Header */}
+
                                 <div className="flex items-center justify-between gap-2 mb-2">
-                                    <h3 className="text-xl font-bold text-slate-900 dark:text-white">{plan.name}</h3>
-                                    {isCurrent && (
+
+                                    <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+                                        {plan.name}
+                                    </h3>
+
+                                    {current && (
                                         <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold border border-emerald-500/30">
                                             Plano Atual
                                         </span>
                                     )}
+
                                 </div>
 
                                 <p className="text-xs text-slate-500 dark:text-slate-400 min-h-[36px]">
                                     {plan.tagline}
                                 </p>
 
-                                {/* Pricing Display */}
                                 <div className="my-6 pb-6 border-b border-slate-100 dark:border-slate-800">
+
                                     <div className="flex items-baseline gap-1">
+
                                         <span className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white">
                                             {getPlanPrice(plan)}
                                         </span>
+
                                         {plan.monthlyPrice > 0 && (
                                             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                                                 /mês
                                             </span>
                                         )}
+
                                     </div>
-                                    {billingCycle === 'annually' && plan.monthlyPrice > 0 && (
-                                        <p className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1">
-                                            Faturado anualmente (€{(plan.annualPriceMonthly * 12).toFixed(2)}/ano)
-                                        </p>
-                                    )}
+
+                                    {billingCycle === 'annually' &&
+                                        plan.monthlyPrice > 0 && (
+                                            <p className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1">
+                                                Faturado anualmente (€{getAnnualTotal(plan)}/ano)
+                                            </p>
+                                        )}
+
                                 </div>
 
-                                {/* Features List */}
                                 <div className="space-y-3">
+
                                     <p className="text-xs font-bold text-slate-900 dark:text-slate-200 uppercase tracking-wider">
                                         O que está incluído:
                                     </p>
+
                                     <ul className="space-y-2.5">
-                                        {plan.features.map((feature, idx) => (
-                                            <li key={idx} className="flex items-start gap-2.5 text-xs text-slate-600 dark:text-slate-300">
-                                                <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                                                <span>{feature}</span>
-                                            </li>
-                                        ))}
+
+                                        {plan.features.map(
+                                            (feature, index) => (
+                                                <li
+                                                    key={index}
+                                                    className="flex items-start gap-2.5 text-xs text-slate-600 dark:text-slate-300"
+                                                >
+                                                    <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                                                    <span>
+                                                        {feature}
+                                                    </span>
+                                                </li>
+                                            )
+                                        )}
+
                                     </ul>
+
                                 </div>
+
                             </div>
 
-                            {/* Action Button */}
                             <div className="pt-8">
+
                                 <button
-                                    onClick={() => handleOpenCheckout(plan)}
-                                    disabled={isCurrent}
-                                    className={`w-full py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer ${isCurrent
+                                    type="button"
+                                    onClick={() =>
+                                        handleOpenPlan(plan)
+                                    }
+                                    disabled={current}
+                                    className={`w-full py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
+                                        current
                                             ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
-                                            : isPopular
-                                                ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-600/30'
-                                                : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white'
-                                        }`}
+                                            : popular
+                                                ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-600/30 cursor-pointer'
+                                                : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white cursor-pointer'
+                                    }`}
                                 >
-                                    <span>{isCurrent ? 'Plano Atual Ativo' : plan.cta}</span>
-                                    {!isCurrent && <ArrowRight className="w-4 h-4" />}
+
+                                    <span>
+                                        {current
+                                            ? 'Plano Atual Ativo'
+                                            : plan.cta}
+                                    </span>
+
+                                    {!current && (
+                                        <ArrowRight className="w-4 h-4" />
+                                    )}
+
                                 </button>
+
                             </div>
+
                         </div>
                     );
                 })}
+
             </div>
 
-            {/* Payment Gateways Banner */}
-            <div className="rounded-3xl bg-slate-900 text-white p-6 sm:p-8 border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl">
-                <div className="space-y-1 text-center md:text-left">
-                    <div className="flex items-center justify-center md:justify-start gap-2 text-xs font-bold text-indigo-400 uppercase tracking-wider">
-                        <Lock className="w-3.5 h-3.5" />
-                        <span>Processamento Seguro & Flexível</span>
+            {/* =====================================================
+                BANNER 14 DIAS
+            ====================================================== */}
+            <div className="rounded-3xl bg-gradient-to-r from-indigo-950 via-slate-900 to-violet-950 text-white p-6 sm:p-8 border border-indigo-800/50 shadow-xl">
+
+                <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+
+                    <div className="text-center md:text-left">
+
+                        <div className="flex items-center justify-center md:justify-start gap-2 text-emerald-400 text-xs font-bold uppercase tracking-wider">
+
+                            <Gift className="w-4 h-4" />
+
+                            <span>Teste gratuito</span>
+
+                        </div>
+
+                        <h3 className="text-lg sm:text-xl font-bold mt-2">
+                            Experimente o Pro ou Enterprise por 14 dias
+                        </h3>
+
+                        <p className="text-xs text-slate-400 max-w-2xl mt-2">
+                            Não será cobrado nada ao iniciar o teste.
+                            Escolha o plano, ative os 14 dias e decida
+                            depois se deseja continuar.
+                        </p>
+
                     </div>
-                    <h3 className="text-lg sm:text-xl font-bold">Aceitamos os seus métodos de pagamento favoritos</h3>
-                    <p className="text-xs text-slate-400 max-w-xl">
-                        Ativação imediata da sua subscrição através de PIX, PayPal, Stripe ou maquininhas SumUp.
-                        Segurança encriptada de ponta a ponta.
-                    </p>
+
+                    <div className="shrink-0 text-center">
+
+                        <div className="text-4xl font-black">
+                            14
+                        </div>
+
+                        <div className="text-[11px] text-slate-400 uppercase tracking-wider">
+                            dias grátis
+                        </div>
+
+                    </div>
+
                 </div>
 
-                {/* Logos & Badges */}
-                <div className="flex flex-wrap items-center justify-center gap-3 shrink-0">
-                    <div className="px-3.5 py-2 rounded-xl bg-emerald-950/80 border border-emerald-800 text-emerald-400 text-xs font-bold flex items-center gap-1.5">
-                        <QrCode className="w-4 h-4" />
-                        <span>PIX</span>
-                    </div>
-
-                    <div className="px-3.5 py-2 rounded-xl bg-blue-950/80 border border-blue-800 text-blue-300 text-xs font-bold flex items-center gap-1.5">
-                        <span className="font-extrabold italic text-blue-400">PayPal</span>
-                    </div>
-
-                    <div className="px-3.5 py-2 rounded-xl bg-indigo-950/80 border border-indigo-800 text-indigo-300 text-xs font-bold flex items-center gap-1.5">
-                        <CreditCard className="w-4 h-4" />
-                        <span>Stripe</span>
-                    </div>
-
-                    <div className="px-3.5 py-2 rounded-xl bg-sky-950/80 border border-sky-800 text-sky-300 text-xs font-bold flex items-center gap-1.5">
-                        <Smartphone className="w-4 h-4" />
-                        <span>SumUp</span>
-                    </div>
-                </div>
             </div>
 
-            {/* Frequently Asked Questions */}
+            {/* =====================================================
+                FAQ
+            ====================================================== */}
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 space-y-6">
+
                 <div className="flex items-center gap-2">
+
                     <HelpCircle className="w-5 h-5 text-indigo-500" />
-                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">Dúvidas Frequentes sobre os Planos</h2>
+
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                        Dúvidas Frequentes sobre os Planos
+                    </h2>
+
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs sm:text-sm">
+
                     <div className="space-y-1">
-                        <h4 className="font-bold text-slate-900 dark:text-white">Como funciona o pagamento via PIX?</h4>
+
+                        <h4 className="font-bold text-slate-900 dark:text-white">
+                            Como funciona o teste gratuito?
+                        </h4>
+
                         <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
-                            Ao selecionar o PIX, um QR Code dinâmico e uma chave "Copia e Cola" são gerados instantaneamente. Assim que efetuar o pagamento na app do seu banco, a sua conta Stalmind é atualizada automaticamente em poucos segundos.
+                            Escolha o Pro ou Enterprise e clique em
+                            “Experimentar 14 Dias Grátis”. O plano é
+                            ativado imediatamente e você recebe 14 dias
+                            de acesso sem cobrança.
                         </p>
+
                     </div>
 
                     <div className="space-y-1">
-                        <h4 className="font-bold text-slate-900 dark:text-white">Posso mudar de plano a qualquer momento?</h4>
+
+                        <h4 className="font-bold text-slate-900 dark:text-white">
+                            Preciso pagar para iniciar o teste?
+                        </h4>
+
                         <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
-                            Sim! Pode realizar o upgrade ou downgrade do seu plano quando desejar. No caso de upgrade, o novo acesso às funcionalidades de IA e gestão é libertado imediatamente.
+                            Não. O início do período de teste não realiza
+                            nenhuma cobrança.
                         </p>
+
                     </div>
 
                     <div className="space-y-1">
-                        <h4 className="font-bold text-slate-900 dark:text-white">É seguro pagar via Stripe, PayPal ou SumUp?</h4>
+
+                        <h4 className="font-bold text-slate-900 dark:text-white">
+                            O que acontece depois dos 14 dias?
+                        </h4>
+
                         <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
-                            Totalmente. Todas as transações com cartão utilizam encriptação SSL de 256 bits direta nos servidores seguros da Stripe, PayPal e SumUp. O Stalmind nunca armazena o número do seu cartão.
+                            Ao terminar o teste, o plano entra no ciclo
+                            de cobrança escolhido caso o cliente tenha
+                            uma subscrição de pagamento configurada.
                         </p>
+
                     </div>
 
                     <div className="space-y-1">
-                        <h4 className="font-bold text-slate-900 dark:text-white">Recebo fatura/recibo com o meu NIF / CNPJ?</h4>
+
+                        <h4 className="font-bold text-slate-900 dark:text-white">
+                            Posso cancelar antes do fim do teste?
+                        </h4>
+
                         <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
-                            Sim! A fatura/recibo é emitida automaticamente com o NIF/CNPJ configurado no seu espaço de trabalho e enviada diretamente para o seu e-mail cadastrado.
+                            Sim. O cliente pode cancelar antes do término
+                            do período de teste sem pagar pelo período
+                            experimental.
                         </p>
+
                     </div>
+
                 </div>
+
             </div>
 
-            {/* CHECKOUT & PAYMENT METHOD MODAL */}
+            {/* =====================================================
+                MODAL DO TRIAL
+            ====================================================== */}
             <Modal
-                isOpen={isCheckoutModalOpen}
+                isOpen={isTrialModalOpen}
                 onClose={() => {
-                    if (!isProcessing) setIsCheckoutModalOpen(false);
+                    if (!isStartingTrial) {
+                        setIsTrialModalOpen(false);
+                    }
                 }}
-                title={checkoutSuccess ? 'Subscrição Concluída!' : `Checkout - ${selectedPlan?.name}`}
+                title={
+                    trialStarted
+                        ? 'Teste gratuito ativado!'
+                        : `Experimentar ${selectedPlan?.name || ''}`
+                }
             >
-                {checkoutSuccess ? (
-                    <div className="text-center py-6 space-y-4">
-                        <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-500 flex items-center justify-center mx-auto animate-bounce shadow-lg">
+
+                {trialStarted && trialResult ? (
+
+                    <div className="text-center py-6 space-y-5">
+
+                        <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-500 flex items-center justify-center mx-auto">
                             <CheckCircle2 className="w-10 h-10" />
                         </div>
 
                         <div className="space-y-2">
+
                             <h3 className="text-xl font-bold text-slate-900 dark:text-white">
-                                Pagamento Confirmado!
+                                🎉 Os seus 14 dias começaram!
                             </h3>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-                                O seu espaço de trabalho foi atualizado para o{' '}
-                                <strong className="text-indigo-600 dark:text-indigo-400 font-bold">
+
+                            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                                O plano{' '}
+                                <strong className="text-indigo-600 dark:text-indigo-400">
                                     {selectedPlan?.name}
-                                </strong>
-                                . Já tem acesso total às funcionalidades contratadas.
+                                </strong>{' '}
+                                foi ativado gratuitamente.
                             </p>
+
                         </div>
 
-                        <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/80 text-left text-xs space-y-2 max-w-sm mx-auto">
-                            <div className="flex justify-between text-slate-500">
-                                <span>Plano:</span>
-                                <strong className="text-slate-900 dark:text-white font-semibold">{selectedPlan?.name}</strong>
+                        <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 max-w-sm mx-auto space-y-3">
+
+                            <div className="flex items-center justify-center gap-2 text-emerald-700 dark:text-emerald-400 font-bold">
+
+                                <Gift className="w-5 h-5" />
+
+                                14 dias gratuitos
+
                             </div>
-                            <div className="flex justify-between text-slate-500">
-                                <span>Ciclo:</span>
-                                <strong className="text-slate-900 dark:text-white font-semibold">
-                                    {billingCycle === 'annually' ? 'Anual (20% Desc.)' : 'Mensal'}
-                                </strong>
+
+                            <div className="text-xs text-slate-600 dark:text-slate-300">
+
+                                <div>
+                                    Início:{' '}
+                                    <strong>
+                                        {formatDate(
+                                            trialResult.trial_started_at
+                                        )}
+                                    </strong>
+                                </div>
+
+                                <div className="mt-1">
+
+                                    Término:{' '}
+
+                                    <strong>
+                                        {formatDate(
+                                            trialResult.trial_ends_at
+                                        )}
+                                    </strong>
+
+                                </div>
+
                             </div>
-                            <div className="flex justify-between text-slate-500">
-                                <span>Método de Pagamento:</span>
-                                <strong className="text-indigo-600 dark:text-indigo-400 font-bold capitalize">
-                                    {activeGateway.toUpperCase()}
-                                </strong>
-                            </div>
-                            <div className="flex justify-between text-slate-500 pt-2 border-t border-slate-200 dark:border-slate-700">
-                                <span>Valor Processado:</span>
-                                <strong className="text-slate-900 dark:text-white font-bold">
-                                    {selectedPlan && getPlanPrice(selectedPlan)}
-                                </strong>
-                            </div>
+
                         </div>
 
-                        <div className="pt-4 flex justify-center gap-3">
-                            <button
-                                onClick={() => setIsCheckoutModalOpen(false)}
-                                className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
-                            >
-                                Ir para o Dashboard
-                            </button>
+                        <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300">
+
+                            <p>
+                                <strong>
+                                    Não foi realizado nenhum pagamento.
+                                </strong>
+                            </p>
+
+                            <p className="mt-1">
+                                Você poderá decidir continuar com o plano
+                                após o período de teste.
+                            </p>
+
                         </div>
+
+                        <button
+                            type="button"
+                            onClick={() =>
+                                setIsTrialModalOpen(false)
+                            }
+                            className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all"
+                        >
+                            Continuar para o Dashboard
+                        </button>
+
                     </div>
+
                 ) : (
+
                     <div className="space-y-6">
-                        {/* Plan Order Summary */}
-                        <div className="p-4 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/60 flex items-center justify-between">
-                            <div>
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-                                    Resumo do Pedido
-                                </span>
-                                <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                                    {selectedPlan?.name} ({billingCycle === 'annually' ? 'Anual' : 'Mensal'})
-                                </h4>
-                            </div>
 
-                            <div className="text-right">
-                                <span className="text-lg font-black text-slate-900 dark:text-white">
-                                    {selectedPlan && getPlanPrice(selectedPlan)}
-                                </span>
-                                <p className="text-[10px] text-slate-500">
-                                    {billingCycle === 'annually' ? 'por mês (faturado 1x)' : 'por mês'}
-                                </p>
-                            </div>
-                        </div>
+                        {/* RESUMO */}
 
-                        {/* Select Gateway Navigation */}
-                        <div className="space-y-2">
-                            <label className="text-xs font-bold text-slate-900 dark:text-slate-200">
-                                Escolha a forma de pagamento:
-                            </label>
+                        <div className="p-5 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/60">
 
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                {/* PIX */}
-                                <button
-                                    type="button"
-                                    onClick={() => setActiveGateway('pix')}
-                                    className={`p-3 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center gap-1.5 ${activeGateway === 'pix'
-                                            ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold shadow-xs'
-                                            : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
-                                        }`}
-                                >
-                                    <QrCode className="w-5 h-5 text-emerald-500" />
-                                    <span className="text-xs">PIX</span>
-                                </button>
+                            <div className="flex items-start justify-between gap-4">
 
-                                {/* PAYPAL */}
-                                <button
-                                    type="button"
-                                    onClick={() => setActiveGateway('paypal')}
-                                    className={`p-3 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center gap-1.5 ${activeGateway === 'paypal'
-                                            ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold shadow-xs'
-                                            : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
-                                        }`}
-                                >
-                                    <span className="font-black italic text-blue-500 text-sm">PayPal</span>
-                                    <span className="text-xs">PayPal</span>
-                                </button>
+                                <div>
 
-                                {/* STRIPE */}
-                                <button
-                                    type="button"
-                                    onClick={() => setActiveGateway('stripe')}
-                                    className={`p-3 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center gap-1.5 ${activeGateway === 'stripe'
-                                            ? 'border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
-                                            : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
-                                        }`}
-                                >
-                                    <CreditCard className="w-5 h-5 text-indigo-500" />
-                                    <span className="text-xs">Stripe</span>
-                                </button>
-
-                                {/* SUMUP */}
-                                <button
-                                    type="button"
-                                    onClick={() => setActiveGateway('sumup')}
-                                    className={`p-3 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center gap-1.5 ${activeGateway === 'sumup'
-                                            ? 'border-sky-500 bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold shadow-xs'
-                                            : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
-                                        }`}
-                                >
-                                    <Smartphone className="w-5 h-5 text-sky-500" />
-                                    <span className="text-xs">SumUp</span>
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* GATEWAY CONTENT BODY */}
-
-                        {/* 1. PIX BODY */}
-                        {activeGateway === 'pix' && (
-                            <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center space-y-4">
-                                <div className="flex items-center justify-between text-xs text-slate-500">
-                                    <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold">
-                                        <Zap className="w-3.5 h-3.5" />
-                                        Pagamento Instantâneo via QR Code
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+                                        Teste gratuito
                                     </span>
-                                    <span className="flex items-center gap-1 font-mono font-semibold text-slate-700 dark:text-slate-300">
-                                        <Clock className="w-3.5 h-3.5" />
-                                        Expira em: {formatPixTimer(pixTimer)}
-                                    </span>
+
+                                    <h4 className="text-lg font-bold text-slate-900 dark:text-white mt-1">
+                                        {selectedPlan?.name}
+                                    </h4>
+
                                 </div>
 
-                                {/* QR CODE BOX */}
-                                <div className="bg-white p-4 rounded-2xl inline-block border border-slate-200 shadow-md">
-                                    <svg className="w-40 h-40 mx-auto" viewBox="0 0 100 100">
-                                        <rect width="100" height="100" fill="#ffffff" />
-                                        {/* Simulated Pix QR Code design */}
-                                        <path
-                                            d="M10 10h30v30H10zM15 15v20h20V15zM20 20h10v10H20zM60 10h30v30H60zM65 15v20h20V15zM70 20h10v10H70zM10 60h30v30H10zM15 65v20h20V65zM20 70h10v10H20zM45 10h10v10H45zM45 25h10v10H45zM45 45h10v10H45zM10 45h10v10H10zM25 45h15v5H25zM60 45h30v10H60zM45 60h10v30H45zM60 60h10v10H60zM75 60h15v10H75zM60 75h15v15H60zM80 80h10v10H80z"
-                                            fill="#000000"
-                                        />
-                                        <circle cx="50" cy="50" r="8" fill="#10B981" />
-                                    </svg>
+                                <div className="text-right">
+
+                                    <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                                        €0,00
+                                    </div>
+
+                                    <div className="text-[10px] text-slate-500">
+                                        durante 14 dias
+                                    </div>
+
                                 </div>
 
-                                <div className="space-y-2">
-                                    <p className="text-xs text-slate-600 dark:text-slate-400">
-                                        Abra a aplicação do seu banco, escolha <strong>PIX</strong> e leia o QR Code acima ou copie a chave abaixo.
+                            </div>
+
+                        </div>
+
+                        {/* BENEFÍCIOS */}
+
+                        <div className="space-y-3">
+
+                            <div className="flex items-start gap-3">
+
+                                <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center shrink-0">
+                                    <Gift className="w-4 h-4 text-emerald-500" />
+                                </div>
+
+                                <div>
+
+                                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                                        14 dias totalmente gratuitos
+                                    </h4>
+
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                        Tenha acesso ao plano escolhido
+                                        sem cobrança durante o período
+                                        experimental.
                                     </p>
 
-                                    <div className="flex items-center gap-2 max-w-sm mx-auto">
-                                        <input
-                                            type="text"
-                                            readOnly
-                                            value="00020126580014BR.GOV.BCB.PIX0136stalmind-planos-checkout-88392103520400005303986540549"
-                                            className="w-full px-3 py-2 text-[11px] font-mono bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 truncate"
-                                        />
-                                        <button
-                                            onClick={handleCopyPixKey}
-                                            className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors shrink-0 flex items-center gap-1 cursor-pointer"
-                                        >
-                                            {pixCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                                            <span>{pixCopied ? 'Copiado!' : 'Copiar'}</span>
-                                        </button>
-                                    </div>
                                 </div>
 
-                                <button
-                                    onClick={handleProcessPayment}
-                                    disabled={isProcessing}
-                                    className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer mt-2"
-                                >
-                                    {isProcessing ? (
-                                        <span>A verificar pagamento PIX...</span>
-                                    ) : (
-                                        <>
-                                            <CheckCircle2 className="w-4 h-4" />
-                                            <span>Simular Confirmação de Pagamento PIX</span>
-                                        </>
-                                    )}
-                                </button>
                             </div>
+
+                            <div className="flex items-start gap-3">
+
+                                <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-950/40 flex items-center justify-center shrink-0">
+                                    <CheckCircle2 className="w-4 h-4 text-indigo-500" />
+                                </div>
+
+                                <div>
+
+                                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                                        Ativação imediata
+                                    </h4>
+
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                        Assim que confirmar, o plano fica
+                                        disponível imediatamente.
+                                    </p>
+
+                                </div>
+
+                            </div>
+
+                            <div className="flex items-start gap-3">
+
+                                <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center shrink-0">
+                                    <Clock className="w-4 h-4 text-amber-500" />
+                                </div>
+
+                                <div>
+
+                                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                                        Sem cobrança agora
+                                    </h4>
+
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                        Nenhum pagamento é processado ao
+                                        iniciar o período experimental.
+                                    </p>
+
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                        {/* ALERTA */}
+
+                        <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-start gap-3">
+
+                            <ShieldCheck className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+
+                            <div className="text-xs text-slate-600 dark:text-slate-300">
+
+                                <strong className="text-slate-900 dark:text-white">
+                                    Como funciona:
+                                </strong>
+
+                                <p className="mt-1">
+                                    Clique em “Começar 14 Dias Grátis”.
+                                    O período começa imediatamente.
+                                    Depois dos 14 dias, você decide se
+                                    quer continuar com a subscrição.
+                                </p>
+
+                            </div>
+
+                        </div>
+
+                        {/* ERRO */}
+
+                        {errorMessage && (
+
+                            <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 flex items-start gap-2 text-xs text-red-700 dark:text-red-400">
+
+                                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+
+                                <span>
+                                    {errorMessage}
+                                </span>
+
+                            </div>
+
                         )}
 
-                        {/* 2. PAYPAL BODY */}
-                        {activeGateway === 'paypal' && (
-                            <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
-                                <div className="flex items-center justify-between text-xs text-slate-500">
-                                    <span className="font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                                        Checkout Seguro PayPal Express
-                                    </span>
-                                    <span className="text-[10px]">Proteção ao Comprador 100%</span>
-                                </div>
+                        {/* BOTÃO */}
 
-                                <div className="space-y-3">
-                                    <div>
-                                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                                            Conta do PayPal (E-mail):
-                                        </label>
-                                        <input
-                                            type="email"
-                                            value={paypalEmail}
-                                            onChange={(e) => setPaypalEmail(e.target.value)}
-                                            placeholder="seu.email@exemplo.com"
-                                            className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                        />
-                                    </div>
+                        <button
+                            type="button"
+                            onClick={handleStartTrial}
+                            disabled={
+                                isStartingTrial ||
+                                !selectedPlan ||
+                                trialAlreadyUsed ||
+                                isTrialActive
+                            }
+                            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2"
+                        >
 
-                                    <div className="p-3 bg-blue-50/50 dark:bg-blue-950/30 rounded-xl border border-blue-200 dark:border-blue-900 text-xs text-blue-700 dark:text-blue-300 flex items-start gap-2">
-                                        <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
-                                        <span>
-                                            Será redirecionado com segurança para a janela oficial do PayPal para autorizar a subscrição recorrente.
-                                        </span>
-                                    </div>
-                                </div>
+                            {isStartingTrial ? (
+                                <>
+                                    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                                    A iniciar os 14 dias...
+                                </>
+                            ) : (
+                                <>
+                                    <Gift className="w-4 h-4" />
+                                    Começar 14 Dias Grátis
+                                </>
+                            )}
 
-                                <button
-                                    onClick={handleProcessPayment}
-                                    disabled={isProcessing}
-                                    className="w-full py-3 rounded-xl bg-[#0070BA] hover:bg-[#005ea6] text-white text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
-                                >
-                                    {isProcessing ? (
-                                        <span>A ligar ao PayPal...</span>
-                                    ) : (
-                                        <>
-                                            <span className="font-black italic text-yellow-300">PayPal</span>
-                                            <span>Pagar com PayPal</span>
-                                        </>
-                                    )}
-                                </button>
-                            </div>
+                        </button>
+
+                        {trialAlreadyUsed && (
+                            <p className="text-center text-[11px] text-amber-600 dark:text-amber-400">
+                                Este workspace já utilizou o período
+                                gratuito.
+                            </p>
                         )}
 
-                        {/* 3. STRIPE BODY */}
-                        {activeGateway === 'stripe' && (
-                            <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
-                                <div className="flex items-center justify-between text-xs text-slate-500">
-                                    <span className="font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
-                                        <Lock className="w-3.5 h-3.5" />
-                                        Stripe 256-Bit SSL Encrypted
-                                    </span>
-                                    <div className="flex items-center gap-1">
-                                        <span className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-800 text-[9px] font-bold rounded">
-                                            VISA
-                                        </span>
-                                        <span className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-800 text-[9px] font-bold rounded">
-                                            MC
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-3 text-left">
-                                    <div>
-                                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                                            Nome no Cartão
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={cardName}
-                                            onChange={(e) => setCardName(e.target.value)}
-                                            placeholder="Alex Silva"
-                                            className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                                            Número do Cartão
-                                        </label>
-                                        <div className="relative">
-                                            <input
-                                                type="text"
-                                                maxLength={19}
-                                                value={cardNumber}
-                                                onChange={(e) => setCardNumber(formatCardNumber(e.target.value))}
-                                                placeholder="4532 •••• •••• 8821"
-                                                className="w-full px-3 py-2 text-xs font-mono bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 pr-10"
-                                            />
-                                            <CreditCard className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                                                Validade (MM/AA)
-                                            </label>
-                                            <input
-                                                type="text"
-                                                maxLength={5}
-                                                value={cardExpiry}
-                                                onChange={(e) => setCardExpiry(formatExpiry(e.target.value))}
-                                                placeholder="12/28"
-                                                className="w-full px-3 py-2 text-xs font-mono bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                            />
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                                                Código CVC
-                                            </label>
-                                            <input
-                                                type="password"
-                                                maxLength={4}
-                                                value={cardCvc}
-                                                onChange={(e) => setCardCvc(e.target.value.replace(/\D/g, ''))}
-                                                placeholder="123"
-                                                className="w-full px-3 py-2 text-xs font-mono bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <label className="flex items-center gap-2 cursor-pointer pt-1">
-                                        <input
-                                            type="checkbox"
-                                            checked={saveCard}
-                                            onChange={(e) => setSaveCard(e.target.checked)}
-                                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                        />
-                                        <span className="text-[11px] text-slate-600 dark:text-slate-400">
-                                            Guardar dados com segurança na Stripe para renovação automática.
-                                        </span>
-                                    </label>
-                                </div>
-
-                                <button
-                                    onClick={handleProcessPayment}
-                                    disabled={isProcessing}
-                                    className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
-                                >
-                                    {isProcessing ? (
-                                        <span>A processar cartão na Stripe...</span>
-                                    ) : (
-                                        <>
-                                            <Lock className="w-3.5 h-3.5" />
-                                            <span>Confirmar Pagamento com Stripe</span>
-                                        </>
-                                    )}
-                                </button>
-                            </div>
-                        )}
-
-                        {/* 4. SUMUP BODY */}
-                        {activeGateway === 'sumup' && (
-                            <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
-                                <div className="flex items-center justify-between text-xs text-slate-500">
-                                    <span className="font-bold text-sky-600 dark:text-sky-400 flex items-center gap-1">
-                                        <Smartphone className="w-3.5 h-3.5" />
-                                        SumUp Pay & Terminal Reader
-                                    </span>
-                                    <span className="text-[10px]">Contactless / Chip / Parcelamento</span>
-                                </div>
-
-                                <div className="space-y-3 text-left">
-                                    <div>
-                                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                                            Opções de Parcelamento (SumUp):
-                                        </label>
-                                        <select
-                                            value={sumupInstallments}
-                                            onChange={(e) => setSumupInstallments(e.target.value)}
-                                            className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
-                                        >
-                                            <option value="1">1x À vista (Sem juros)</option>
-                                            <option value="2">2x sem juros</option>
-                                            <option value="3">3x sem juros</option>
-                                            <option value="6">6x com juros transparentes SumUp</option>
-                                            <option value="12">12x no cartão de crédito SumUp</option>
-                                        </select>
-                                    </div>
-
-                                    <div className="p-3 bg-sky-50/50 dark:bg-sky-950/30 rounded-xl border border-sky-200 dark:border-sky-900 text-xs text-sky-700 dark:text-sky-300 space-y-1">
-                                        <p className="font-bold flex items-center gap-1">
-                                            <RefreshCw className="w-3.5 h-3.5" />
-                                            Pagamento via SumUp Link ou Maquininha
-                                        </p>
-                                        <p className="text-[11px] text-sky-600/80 dark:text-sky-400/80">
-                                            Aceita cartões Visa, Mastercard, Elo, Hipercard, Amex e Google/Apple Pay por aproximação.
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <button
-                                    onClick={handleProcessPayment}
-                                    disabled={isProcessing}
-                                    className="w-full py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
-                                >
-                                    {isProcessing ? (
-                                        <span>A autorizar no SumUp Pay...</span>
-                                    ) : (
-                                        <>
-                                            <Smartphone className="w-4 h-4" />
-                                            <span>Concluir com SumUp</span>
-                                        </>
-                                    )}
-                                </button>
-                            </div>
-                        )}
                     </div>
                 )}
+
             </Modal>
+
         </div>
     );
 };
