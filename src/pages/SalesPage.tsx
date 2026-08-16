@@ -20,6 +20,8 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabaseClient';
 import { Modal } from '../components/common/Modal';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface SalesPageProps {
   onNavigate?: (path: string, action?: string) => void;
