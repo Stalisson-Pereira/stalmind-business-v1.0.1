@@ -558,16 +558,6 @@ export const customerService = {
       );
     }
 
-    console.log(
-      '[customerService] UPDATE CLIENTE:',
-      {
-        customerId,
-        workspaceId:
-          finalWorkspaceId,
-        customer,
-      }
-    );
-
     // ======================================================
     // MODO LOCAL
     // ======================================================
