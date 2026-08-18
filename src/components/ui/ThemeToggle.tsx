@@ -3,13 +3,33 @@ import { Sun, Moon, Monitor } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Theme } from '../../types';
 
-export const ThemeToggle: React.FC<{ className?: string }> = ({ className = '' }) => {
+export const ThemeToggle: React.FC<{ className?: string }> = ({
+  className = '',
+}) => {
   const { theme, setTheme, resolvedTheme } = useTheme();
 
-  const options: { id: Theme; label: string; icon: React.FC<{ className?: string }> }[] = [
-    { id: 'light', label: 'Modo Claro', icon: Sun },
-    { id: 'dark', label: 'Modo Escuro', icon: Moon },
-    { id: 'system', label: `Modo Sistema (Automático - ${resolvedTheme === 'dark' ? 'Escuro' : 'Claro'})`, icon: Monitor },
+  const options: {
+    id: Theme;
+    label: string;
+    icon: React.FC<{ className?: string }>;
+  }[] = [
+    {
+      id: 'light',
+      label: 'Modo Claro',
+      icon: Sun,
+    },
+    {
+      id: 'dark',
+      label: 'Modo Escuro',
+      icon: Moon,
+    },
+    {
+      id: 'system',
+      label: `Modo Sistema (Automático - ${
+        resolvedTheme === 'dark' ? 'Escuro' : 'Claro'
+      })`,
+      icon: Monitor,
+    },
   ];
 
   return (
@@ -28,7 +48,9 @@ export const ThemeToggle: React.FC<{ className?: string }> = ({ className = '' }
             type="button"
             onClick={() => setTheme(option.id)}
             title={option.label}
-            className={`p-1.5 sm:p-1.5 rounded-full transition-all duration-200 select-none flex items-center justify-center ${
+            aria-label={option.label}
+            aria-pressed={isActive}
+            className={`p-1.5 rounded-full transition-all duration-200 select-none flex items-center justify-center ${
               isActive
                 ? 'bg-indigo-600 text-white shadow-xs font-bold scale-105'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/70 dark:hover:bg-slate-800/80'
