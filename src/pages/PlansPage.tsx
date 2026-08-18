@@ -1,7 +1,15 @@
-import React, { useMemo, useState } from 'react';
+import React, {
+    useEffect,
+    useMemo,
+    useState,
+} from 'react';
+
 import { useAuth } from '../contexts/AuthContext';
+
 import { notificationService } from '../services/notificationService';
+
 import { Modal } from '../components/common/Modal';
+
 import { supabase } from '../lib/supabaseClient';
 
 import {
@@ -17,26 +25,95 @@ import {
     X,
 } from 'lucide-react';
 
+/* ============================================================
+   TIPOS
+============================================================ */
+
 export interface PlanTier {
     id: 'Starter' | 'Pro' | 'Enterprise';
+
     name: string;
+
     tagline: string;
+
     monthlyPrice: number;
+
     annualPriceMonthly: number;
+
     popular?: boolean;
+
     features: string[];
+
     cta: string;
+
     color: string;
 }
+
+type BillingCycle =
+    | 'monthly'
+    | 'annually';
+
+interface TrialResult {
+    success: boolean;
+
+    workspace_id: string;
+
+    plan: string;
+
+    trial_used: boolean;
+
+    trial_started_at: string;
+
+    trial_ends_at: string;
+
+    days: number;
+}
+
+interface WorkspaceTrialState {
+    trialUsed?: boolean;
+
+    trial_used?: boolean;
+
+    trialStartedAt?: string | null;
+
+    trial_started_at?: string | null;
+
+    trialEndsAt?: string | null;
+
+    trial_ends_at?: string | null;
+}
+
+/**
+ * Estado local usado depois da ativação.
+ *
+ * Isso evita depender imediatamente de um refresh
+ * do workspace para atualizar a interface.
+ */
+interface LocalTrialState {
+    used: boolean;
+
+    startedAt: string | null;
+
+    endsAt: string | null;
+}
+
+/* ============================================================
+   PLANOS
+============================================================ */
 
 const PLAN_TIERS: PlanTier[] = [
     {
         id: 'Starter',
+
         name: 'Starter / Gratuito',
+
         tagline:
             'Ideal para freelancers e negócios em fase inicial.',
+
         monthlyPrice: 0,
+
         annualPriceMonthly: 0,
+
         features: [
             'Até 10 clientes cadastrados',
             'Assistente IA (100 mensagens/mês)',
@@ -45,18 +122,26 @@ const PLAN_TIERS: PlanTier[] = [
             'Notificações por E-mail',
             'Suporte via ticket',
         ],
+
         cta: 'Começar Grátis',
+
         color: 'slate',
     },
 
     {
         id: 'Pro',
+
         name: 'Pro / Profissional',
+
         tagline:
             'Para consultores, agências e PMEs que buscam escala com IA.',
+
         monthlyPrice: 19.99,
+
         annualPriceMonthly: 9.99,
+
         popular: true,
+
         features: [
             'Clientes e orçamentos ilimitados',
             'Assistente IA Ilimitado (Gemini 2.5/3 Pro)',
@@ -66,17 +151,24 @@ const PLAN_TIERS: PlanTier[] = [
             'Relatórios e Análise Financeira',
             'Suporte Prioritário 24/7',
         ],
+
         cta: 'Ativar Plano Pro',
+
         color: 'indigo',
     },
 
     {
         id: 'Enterprise',
+
         name: 'Enterprise / Negócios',
+
         tagline:
             'Para equipas e empresas com altas demandas de automatização.',
+
         monthlyPrice: 69.99,
+
         annualPriceMonthly: 49.99,
+
         features: [
             'Tudo incluído no Plano Pro',
             'Múltiplas sub-contas e gestão de permissões',
@@ -86,31 +178,16 @@ const PLAN_TIERS: PlanTier[] = [
             'Gerente de Conta Dedicado',
             'SLA de suporte garantido em 1h',
         ],
+
         cta: 'Ativar Enterprise',
+
         color: 'violet',
     },
 ];
 
-type BillingCycle = 'monthly' | 'annually';
-
-interface TrialResult {
-    success: boolean;
-    workspace_id: string;
-    plan: string;
-    trial_used: boolean;
-    trial_started_at: string;
-    trial_ends_at: string;
-    days: number;
-}
-
-interface WorkspaceTrialState {
-    trialUsed?: boolean;
-    trial_used?: boolean;
-    trialStartedAt?: string | null;
-    trial_started_at?: string | null;
-    trialEndsAt?: string | null;
-    trial_ends_at?: string | null;
-}
+/* ============================================================
+   COMPONENTE
+============================================================ */
 
 export const PlansPage: React.FC = () => {
     const {
@@ -139,109 +216,148 @@ export const PlansPage: React.FC = () => {
     const [errorMessage, setErrorMessage] =
         useState<string | null>(null);
 
-    /*
-     * ============================================================
-     * NORMALIZAÇÃO DO PLANO ATUAL
+    /**
+     * Estado local do trial.
      *
-     * O banco pode retornar:
-     *
-     * pro
-     * enterprise
-     * starter
-     * free
-     *
-     * enquanto a interface utiliza:
-     *
-     * Starter
-     * Pro
-     * Enterprise
-     * ============================================================
+     * Usado para atualizar a tela imediatamente
+     * após a RPC retornar sucesso.
      */
+    const [localTrial, setLocalTrial] =
+        useState<LocalTrialState>({
+            used: false,
+            startedAt: null,
+            endsAt: null,
+        });
 
-    const currentPlanId = useMemo<PlanTier['id']>(() => {
-        const value = String(
-            workspace?.plan ?? 'Starter'
-        ).toLowerCase();
-
-        if (
-            value === 'pro'
-        ) {
-            return 'Pro';
-        }
-
-        if (
-            value === 'enterprise' ||
-            value === 'business'
-        ) {
-            return 'Enterprise';
-        }
-
-        return 'Starter';
-    }, [workspace?.plan]);
-
-    /*
-     * ============================================================
-     * DADOS DO TRIAL
-     * ============================================================
-     */
+    /* ============================================================
+       DADOS DO WORKSPACE
+    ============================================================ */
 
     const workspaceTrial =
-        (workspace ?? {}) as typeof workspace &
-            WorkspaceTrialState;
+        (workspace ?? {}) as WorkspaceTrialState;
 
-    const trialUsed =
-        workspaceTrial?.trial_used ??
-        workspaceTrial?.trialUsed ??
+    const databaseTrialUsed =
+        workspaceTrial.trial_used ??
+        workspaceTrial.trialUsed ??
         false;
 
-    const trialEndsAt =
-        workspaceTrial?.trial_ends_at ??
-        workspaceTrial?.trialEndsAt ??
+    const databaseTrialStartedAt =
+        workspaceTrial.trial_started_at ??
+        workspaceTrial.trialStartedAt ??
         null;
 
-    const trialStartedAt =
-        workspaceTrial?.trial_started_at ??
-        workspaceTrial?.trialStartedAt ??
+    const databaseTrialEndsAt =
+        workspaceTrial.trial_ends_at ??
+        workspaceTrial.trialEndsAt ??
         null;
+
+    /**
+     * Quando o workspace mudar, sincronizamos
+     * novamente o estado local.
+     */
+    useEffect(() => {
+        setLocalTrial({
+            used: databaseTrialUsed,
+            startedAt: databaseTrialStartedAt,
+            endsAt: databaseTrialEndsAt,
+        });
+    }, [
+        databaseTrialUsed,
+        databaseTrialStartedAt,
+        databaseTrialEndsAt,
+    ]);
+
+    /* ============================================================
+       TRIAL
+    ============================================================ */
+
+    const trialUsed =
+        localTrial.used ||
+        databaseTrialUsed;
+
+    const trialStartedAt =
+        localTrial.startedAt ??
+        databaseTrialStartedAt;
+
+    const trialEndsAt =
+        localTrial.endsAt ??
+        databaseTrialEndsAt;
 
     const trialIsActive =
         !!trialEndsAt &&
-        new Date(trialEndsAt).getTime() > Date.now();
+        new Date(trialEndsAt).getTime() >
+        Date.now();
 
-    /*
-     * ============================================================
-     * DIAS RESTANTES
-     * ============================================================
-     */
+    /* ============================================================
+       PLANO ATUAL
+    ============================================================ */
 
-    const trialDaysRemaining = useMemo(() => {
-        if (!trialEndsAt) {
-            return 0;
-        }
+    const currentPlanId =
+        useMemo<PlanTier['id']>(() => {
+            const value = String(
+                (workspace as any)?.plan ??
+                'Starter'
+            )
+                .trim()
+                .toLowerCase();
 
-        const end =
-            new Date(trialEndsAt).getTime();
+            if (value === 'pro') {
+                return 'Pro';
+            }
 
-        const now =
-            Date.now();
+            if (
+                value === 'enterprise' ||
+                value === 'business'
+            ) {
+                return 'Enterprise';
+            }
 
-        const diff =
-            end - now;
+            return 'Starter';
+        }, [
+            (workspace as any)?.plan,
+        ]);
 
-        if (diff <= 0) {
-            return 0;
-        }
+    /* ============================================================
+       DIAS RESTANTES
+    ============================================================ */
 
-        return Math.ceil(
-            diff / (1000 * 60 * 60 * 24)
-        );
-    }, [trialEndsAt]);
+    const trialDaysRemaining =
+        useMemo(() => {
+            if (!trialEndsAt) {
+                return 0;
+            }
 
-    /*
-     * ============================================================
-     * PREÇO
-     * ============================================================
-     */
+            const end =
+                new Date(
+                    trialEndsAt
+                ).getTime();
+
+            const now =
+                Date.now();
+
+            const diff =
+                end - now;
+
+            if (diff <= 0) {
+                return 0;
+            }
+
+            return Math.ceil(
+                diff /
+                (
+                    1000 *
+                    60 *
+                    60 *
+                    24
+                )
+            );
+        }, [
+            trialEndsAt,
+        ]);
+
+    /* ============================================================
+       PREÇO
+    ============================================================ */
 
     const getPlanPrice = (
         plan: PlanTier
@@ -258,39 +374,28 @@ export const PlansPage: React.FC = () => {
         return `€${price.toFixed(2)}`;
     };
 
-    /*
-     * ============================================================
-     * LABEL DO CICLO
-     * ============================================================
-     */
-
-    const getBillingLabel = () => {
-        return billingCycle === 'annually'
-            ? 'Anual'
-            : 'Mensal';
-    };
-
-    /*
-     * ============================================================
-     * NOTIFICAÇÃO
-     * ============================================================
-     */
+    /* ============================================================
+       NOTIFICAÇÃO
+    ============================================================ */
 
     const createTrialNotification = (
-        plan: PlanTier,
-        result: TrialResult
+        plan: PlanTier
     ) => {
         try {
             const notifications =
-                notificationService.getNotifications();
+                notificationService
+                    .getNotifications();
 
             const updatedNotifications =
-                Array.isArray(notifications)
+                Array.isArray(
+                    notifications
+                )
                     ? [...notifications]
                     : [];
 
             updatedNotifications.unshift({
-                id: `notif_trial_${Date.now()}`,
+                id:
+                    `notif_trial_${Date.now()}`,
 
                 title:
                     'Período de teste iniciado 🎉',
@@ -304,30 +409,31 @@ export const PlansPage: React.FC = () => {
                 read: false,
 
                 createdAt:
-                    new Date().toISOString(),
+                    new Date()
+                        .toISOString(),
 
                 link: '/plans',
             });
 
             localStorage.setItem(
                 'stalmind_app_notifications',
+
                 JSON.stringify(
                     updatedNotifications
                 )
             );
-        } catch {
-            /*
-             * Falha na notificação não deve
-             * cancelar o trial.
-             */
+
+        } catch (notificationError) {
+            console.warn(
+                '[PlansPage] Não foi possível criar a notificação:',
+                notificationError
+            );
         }
     };
 
-    /*
-     * ============================================================
-     * INICIAR TRIAL
-     * ============================================================
-     */
+    /* ============================================================
+       INICIAR TRIAL
+    ============================================================ */
 
     const handleStartTrial = async (
         plan: PlanTier
@@ -340,9 +446,7 @@ export const PlansPage: React.FC = () => {
             return;
         }
 
-        if (
-            plan.id === 'Starter'
-        ) {
+        if (plan.id === 'Starter') {
             await handleStarterPlan();
 
             return;
@@ -379,23 +483,25 @@ export const PlansPage: React.FC = () => {
         }
 
         setSelectedPlan(plan);
+
         setErrorMessage(null);
+
         setTrialSuccess(false);
+
         setTrialResult(null);
+
         setIsTrialModalOpen(true);
     };
 
-    /*
-     * ============================================================
-     * CONFIRMAR TRIAL
-     * ============================================================
-     */
+    /* ============================================================
+       CONFIRMAR TRIAL
+    ============================================================ */
 
     const confirmStartTrial = async () => {
-        if (
-            !selectedPlan ||
-            !workspace?.id
-        ) {
+        if (!selectedPlan || !workspace?.id) {
+            setErrorMessage(
+                'Não foi possível identificar o workspace atual.'
+            );
             return;
         }
 
@@ -403,6 +509,7 @@ export const PlansPage: React.FC = () => {
             selectedPlan.id !== 'Pro' &&
             selectedPlan.id !== 'Enterprise'
         ) {
+            setErrorMessage('Plano inválido.');
             return;
         }
 
@@ -413,39 +520,29 @@ export const PlansPage: React.FC = () => {
             const selectedPlanForDatabase =
                 selectedPlan.id.toLowerCase();
 
-            /*
-             * IMPORTANTE:
-             *
-             * A assinatura precisa ser:
-             *
-             * start_workspace_trial(
-             *   uuid,
-             *   text
-             * )
-             *
-             * O Supabase RPC utiliza os nomes dos
-             * parâmetros definidos na função.
-             */
-
             const {
                 data,
                 error,
             } = await supabase.rpc(
                 'start_workspace_trial',
                 {
-                    target_workspace:
-                        workspaceId,
-
-                    selected_plan:
-                        selectedPlan,
+                    target_workspace: workspace.id,
+                    selected_plan: selectedPlanForDatabase,
                 }
             );
 
             if (error) {
-                console.error('[PlansPage] Erro ao iniciar trial:', error);
+                console.error(
+                    '[PlansPage] Erro ao iniciar trial:',
+                    error
+                );
                 throw error;
             }
-            console.log('[PlansPage] Trial iniciado:', data);
+
+            console.log(
+                '[PlansPage] Trial iniciado:',
+                data
+            );
 
             if (!data) {
                 throw new Error(
@@ -453,126 +550,52 @@ export const PlansPage: React.FC = () => {
                 );
             }
 
-            const result =
-                data as TrialResult;
+            const result = data as TrialResult;
 
-            if (
-                result.success !== true
-            ) {
+            if (result.success !== true) {
                 throw new Error(
                     'Não foi possível iniciar o período de teste.'
                 );
             }
-
-            /*
-             * Atualiza o estado do aplicativo.
-             *
-             * O banco trabalha com:
-             * pro / enterprise
-             *
-             * A interface trabalha com:
-             * Pro / Enterprise
-             */
 
             await updateWorkspace({
                 plan: selectedPlan.id,
                 planBilling: billingCycle,
             });
 
-            /*
-             * Criar notificação.
-             */
-
             createTrialNotification(
                 selectedPlan,
                 result
             );
 
-            /*
-             * Guardar resultado.
-             */
-
             setTrialResult(result);
-
             setTrialSuccess(true);
 
         } catch (error: any) {
+            console.error(
+                '[PlansPage] Erro completo:',
+                error
+            );
 
             let message =
                 'Não foi possível iniciar o período de teste.';
-
-            /*
-             * Erro 404 / PGRST202
-             */
 
             if (
                 error?.code === 'PGRST202' ||
                 error?.status === 404
             ) {
                 message =
-                    'A função de trial do Supabase não está disponível com a assinatura correta. Execute novamente a função start_workspace_trial no SQL Editor e recarregue o schema.';
-            }
-
-            /*
-             * Usuário não autenticado
-             */
-
-            else if (
-                error?.message?.toLowerCase?.().includes(
-                    'não autenticado'
-                )
-            ) {
-                message =
-                    'Sua sessão expirou. Faça login novamente para iniciar o teste gratuito.';
-            }
-
-            /*
-             * Trial já utilizado
-             */
-
-            else if (
-                error?.message?.toLowerCase?.().includes(
-                    'já foi utilizado'
-                )
-            ) {
-                message =
-                    'Este workspace já utilizou o período de teste gratuito de 14 dias.';
-            }
-
-            /*
-             * Trial ativo
-             */
-
-            else if (
-                error?.message?.toLowerCase?.().includes(
-                    'já possui um período de teste ativo'
-                )
-            ) {
-                message =
-                    'Este workspace já possui um período de teste ativo.';
-            }
-
-            /*
-             * Permissão
-             */
-
-            else if (
+                    'A função start_workspace_trial não foi encontrada ou sua assinatura está incorreta no Supabase.';
+            } else if (
                 error?.code === '42501'
             ) {
                 message =
                     'Você não possui permissão para iniciar o período de teste neste workspace.';
-            }
-
-            /*
-             * Mensagem do banco
-             */
-
-            else if (
+            } else if (
                 typeof error?.message === 'string' &&
                 error.message.trim()
             ) {
-                message =
-                    error.message;
+                message = error.message;
             }
 
             setErrorMessage(message);
@@ -581,162 +604,210 @@ export const PlansPage: React.FC = () => {
             setIsProcessing(false);
         }
     };
+    /* ============================================================
+       PLANO STARTER
+    ============================================================ */
 
-    /*
-     * ============================================================
-     * PLANO STARTER
-     * ============================================================
-     */
+    const handleStarterPlan =
+        async () => {
+            if (!workspace?.id) {
+                setErrorMessage(
+                    'Workspace não encontrado.'
+                );
 
-    const handleStarterPlan = async () => {
-        if (!workspace?.id) {
-            setErrorMessage(
-                'Workspace não encontrado.'
+                return;
+            }
+
+            if (
+                currentPlanId ===
+                'Starter'
+            ) {
+                return;
+            }
+
+            setIsProcessing(
+                true
             );
 
-            return;
-        }
-
-        if (
-            currentPlanId === 'Starter'
-        ) {
-            return;
-        }
-
-        setIsProcessing(true);
-        setErrorMessage(null);
-
-        try {
-            await updateWorkspace({
-                plan: 'Starter',
-                planBilling: 'monthly',
-            });
+            setErrorMessage(
+                null
+            );
 
             try {
-                const notifications =
-                    notificationService.getNotifications();
+                await updateWorkspace({
+                    plan: 'Starter',
 
-                const updatedNotifications =
-                    Array.isArray(notifications)
-                        ? [...notifications]
-                        : [];
-
-                updatedNotifications.unshift({
-                    id: `notif_plan_${Date.now()}`,
-
-                    title:
-                        'Plano alterado',
-
-                    message:
-                        'O workspace foi alterado para o Plano Starter Gratuito.',
-
-                    type: 'payment',
-
-                    read: false,
-
-                    createdAt:
-                        new Date().toISOString(),
-
-                    link: '/plans',
+                    planBilling:
+                        'monthly',
                 });
 
-                localStorage.setItem(
-                    'stalmind_app_notifications',
-                    JSON.stringify(
-                        updatedNotifications
-                    )
+                /**
+                 * Limpa trial local quando volta
+                 * para o Starter.
+                 */
+
+                setLocalTrial({
+                    used:
+                        trialUsed,
+
+                    startedAt:
+                        trialStartedAt,
+
+                    endsAt:
+                        trialEndsAt,
+                });
+
+                try {
+                    const notifications =
+                        notificationService
+                            .getNotifications();
+
+                    const updatedNotifications =
+                        Array.isArray(
+                            notifications
+                        )
+                            ? [
+                                ...notifications,
+                            ]
+                            : [];
+
+                    updatedNotifications.unshift({
+                        id:
+                            `notif_plan_${Date.now()}`,
+
+                        title:
+                            'Plano alterado',
+
+                        message:
+                            'O workspace foi alterado para o Plano Starter Gratuito.',
+
+                        type: 'payment',
+
+                        read: false,
+
+                        createdAt:
+                            new Date()
+                                .toISOString(),
+
+                        link:
+                            '/plans',
+                    });
+
+                    localStorage.setItem(
+                        'stalmind_app_notifications',
+
+                        JSON.stringify(
+                            updatedNotifications
+                        )
+                    );
+
+                } catch {
+                    // Notificação não deve bloquear a alteração.
+                }
+
+            } catch (error: any) {
+                setErrorMessage(
+                    error?.message ||
+                    'Não foi possível alterar para o Plano Starter.'
                 );
-            } catch {
-                // Não interromper a alteração do plano.
+
+            } finally {
+                setIsProcessing(
+                    false
+                );
+            }
+        };
+
+    /* ============================================================
+       FECHAR MODAL
+    ============================================================ */
+
+    const closeTrialModal =
+        () => {
+            if (isProcessing) {
+                return;
             }
 
-        } catch (error: any) {
-
-            setErrorMessage(
-                error?.message ||
-                'Não foi possível alterar para o Plano Starter.'
+            setIsTrialModalOpen(
+                false
             );
 
-        } finally {
-            setIsProcessing(false);
-        }
-    };
+            setSelectedPlan(
+                null
+            );
 
-    /*
-     * ============================================================
-     * FECHAR MODAL
-     * ============================================================
-     */
+            setTrialResult(
+                null
+            );
 
-    const closeTrialModal = () => {
-        if (isProcessing) {
-            return;
-        }
+            setTrialSuccess(
+                false
+            );
 
-        setIsTrialModalOpen(false);
-        setSelectedPlan(null);
-        setTrialResult(null);
-        setTrialSuccess(false);
-        setErrorMessage(null);
-    };
+            setErrorMessage(
+                null
+            );
+        };
 
-    /*
-     * ============================================================
-     * FORMATAR DATA
-     * ============================================================
-     */
+    /* ============================================================
+       FORMATAR DATA
+    ============================================================ */
 
-    const formatTrialDate = (
-        value: string | null | undefined
-    ) => {
-        if (!value) {
-            return '—';
-        }
-
-        const date =
-            new Date(value);
-
-        if (
-            Number.isNaN(
-                date.getTime()
-            )
-        ) {
-            return '—';
-        }
-
-        return date.toLocaleDateString(
-            'pt-PT',
-            {
-                day: '2-digit',
-                month: '2-digit',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
+    const formatTrialDate =
+        (
+            value:
+                string |
+                null |
+                undefined
+        ) => {
+            if (!value) {
+                return '—';
             }
-        );
-    };
 
-    /*
-     * ============================================================
-     * RENDER
-     * ============================================================
-     */
+            const date =
+                new Date(value);
+
+            if (
+                Number.isNaN(
+                    date.getTime()
+                )
+            ) {
+                return '—';
+            }
+
+            return date.toLocaleString(
+                'pt-PT',
+                {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }
+            );
+        };
+
+    /* ============================================================
+       RENDER
+    ============================================================ */
 
     return (
         <div className="space-y-8 pb-12 max-w-7xl mx-auto">
 
-            {/* =====================================================
+            {/* ====================================================
                 CABEÇALHO
-            ====================================================== */}
+            ==================================================== */}
 
             <div className="text-center space-y-4 max-w-3xl mx-auto pt-4">
 
                 <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 text-xs font-semibold shadow-xs">
+
                     <Crown className="w-3.5 h-3.5" />
 
                     <span>
                         Planos Comerciais & Subscrição Corporativa
                     </span>
+
                 </div>
 
                 <h1 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
@@ -744,7 +815,9 @@ export const PlansPage: React.FC = () => {
                 </h1>
 
                 <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed">
+
                     Escolha o plano ideal para o seu negócio.
+
                     <br />
 
                     <strong className="text-emerald-600 dark:text-emerald-400">
@@ -754,6 +827,7 @@ export const PlansPage: React.FC = () => {
                     <br />
 
                     Não existe cobrança durante o período de teste.
+
                 </p>
 
                 {/* PLANO ATUAL */}
@@ -769,9 +843,10 @@ export const PlansPage: React.FC = () => {
                             Plano {currentPlanId}
                         </strong>
                     </span>
+
                 </div>
 
-                {/* TRIAL ATIVO */}
+                {/* TRIAL */}
 
                 {trialIsActive && (
                     <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
@@ -779,18 +854,19 @@ export const PlansPage: React.FC = () => {
                         <Clock className="w-4 h-4" />
 
                         <span>
-                            Período de teste ativo:
-                            {' '}
+                            Período de teste ativo:{' '}
+
                             <strong>
-                                {trialDaysRemaining}
-                                {' '}
+                                {trialDaysRemaining}{' '}
+
                                 {trialDaysRemaining === 1
                                     ? 'dia'
                                     : 'dias'}
-                            </strong>
-                            {' '}
+
+                            </strong>{' '}
                             restantes
                         </span>
+
                     </div>
                 )}
 
@@ -801,13 +877,14 @@ export const PlansPage: React.FC = () => {
                     <button
                         type="button"
                         onClick={() =>
-                            setBillingCycle('monthly')
+                            setBillingCycle(
+                                'monthly'
+                            )
                         }
-                        className={`text-xs sm:text-sm font-semibold transition-colors cursor-pointer ${
-                            billingCycle === 'monthly'
-                                ? 'text-slate-900 dark:text-white'
-                                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
-                        }`}
+                        className={`text-xs sm:text-sm font-semibold transition-colors ${billingCycle === 'monthly'
+                            ? 'text-slate-900 dark:text-white'
+                            : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                            }`}
                     >
                         Faturação Mensal
                     </button>
@@ -816,37 +893,39 @@ export const PlansPage: React.FC = () => {
                         type="button"
                         onClick={() =>
                             setBillingCycle(
-                                billingCycle === 'monthly'
+                                billingCycle ===
+                                    'monthly'
                                     ? 'annually'
                                     : 'monthly'
                             )
                         }
                         aria-label="Alternar ciclo de faturação"
-                        className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                            billingCycle === 'annually'
-                                ? 'bg-indigo-600'
-                                : 'bg-slate-300 dark:bg-slate-700'
-                        }`}
+                        className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${billingCycle === 'annually'
+                            ? 'bg-indigo-600'
+                            : 'bg-slate-300 dark:bg-slate-700'
+                            }`}
                     >
                         <span
-                            className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                                billingCycle === 'annually'
-                                    ? 'translate-x-7'
-                                    : 'translate-x-0'
-                            }`}
+                            className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg transition duration-200 ${billingCycle ===
+                                'annually'
+                                ? 'translate-x-7'
+                                : 'translate-x-0'
+                                }`}
                         />
                     </button>
 
                     <button
                         type="button"
                         onClick={() =>
-                            setBillingCycle('annually')
+                            setBillingCycle(
+                                'annually'
+                            )
                         }
-                        className={`flex items-center gap-1.5 cursor-pointer text-xs sm:text-sm font-semibold ${
-                            billingCycle === 'annually'
-                                ? 'text-slate-900 dark:text-white'
-                                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
-                        }`}
+                        className={`flex items-center gap-1.5 cursor-pointer text-xs sm:text-sm font-semibold ${billingCycle ===
+                            'annually'
+                            ? 'text-slate-900 dark:text-white'
+                            : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                            }`}
                     >
                         <span>
                             Faturação Anual
@@ -856,238 +935,243 @@ export const PlansPage: React.FC = () => {
                             Poupe até 20%
                         </span>
                     </button>
+
                 </div>
+
             </div>
 
-            {/* =====================================================
+            {/* ====================================================
                 CARDS
-            ====================================================== */}
+            ==================================================== */}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
 
-                {PLAN_TIERS.map((plan) => {
+                {PLAN_TIERS.map(
+                    (plan) => {
+                        const isCurrent =
+                            currentPlanId ===
+                            plan.id;
 
-                    const isCurrent =
-                        currentPlanId === plan.id;
+                        const isPopular =
+                            plan.popular ===
+                            true;
 
-                    const isPopular =
-                        plan.popular === true;
+                        const isPaid =
+                            plan.id !==
+                            'Starter';
 
-                    const isPaid =
-                        plan.id !== 'Starter';
+                        const trialAvailable =
+                            isPaid &&
+                            !trialUsed &&
+                            !trialIsActive;
 
-                    const trialAvailable =
-                        isPaid &&
-                        !trialUsed &&
-                        !trialIsActive;
+                        const disabled =
+                            isCurrent ||
+                            isProcessing ||
+                            (
+                                isPaid &&
+                                (
+                                    trialUsed ||
+                                    trialIsActive
+                                )
+                            );
 
-                    return (
-                        <div
-                            key={plan.id}
-                            className={`relative rounded-3xl p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 ${
-                                isPopular
+                        return (
+                            <div
+                                key={
+                                    plan.id
+                                }
+                                className={`relative rounded-3xl p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 ${isPopular
                                     ? 'bg-gradient-to-b from-indigo-900/10 via-slate-900/90 to-slate-900 border-2 border-indigo-500 shadow-2xl shadow-indigo-500/10 dark:from-indigo-950/40 dark:to-slate-900'
                                     : 'bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-lg'
-                            }`}
-                        >
+                                    }`}
+                            >
 
-                            {/* RECOMENDADO */}
+                                {isPopular && (
+                                    <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-[11px] font-extrabold uppercase tracking-wider shadow-md flex items-center gap-1">
 
-                            {isPopular && (
-                                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-[11px] font-extrabold uppercase tracking-wider shadow-md flex items-center gap-1">
-                                    <Star className="w-3 h-3 fill-current" />
+                                        <Star className="w-3 h-3 fill-current" />
 
-                                    Mais Recomendado
-                                </div>
-                            )}
+                                        Mais Recomendado
 
-                            <div>
+                                    </div>
+                                )}
 
-                                {/* CABEÇALHO */}
+                                <div>
 
-                                <div className="flex items-center justify-between gap-2 mb-2">
+                                    <div className="flex items-center justify-between gap-2 mb-2">
 
-                                    <h3 className="text-xl font-bold text-slate-900 dark:text-white">
-                                        {plan.name}
-                                    </h3>
+                                        <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+                                            {plan.name}
+                                        </h3>
 
-                                    {isCurrent && (
-                                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold border border-emerald-500/30">
-                                            Plano Atual
-                                        </span>
-                                    )}
-
-                                </div>
-
-                                <p className="text-xs text-slate-500 dark:text-slate-400 min-h-[36px]">
-                                    {plan.tagline}
-                                </p>
-
-                                {/* PREÇO */}
-
-                                <div className="my-6 pb-6 border-b border-slate-100 dark:border-slate-800">
-
-                                    <div className="flex items-baseline gap-1">
-
-                                        <span className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white">
-                                            {getPlanPrice(plan)}
-                                        </span>
-
-                                        {plan.monthlyPrice > 0 && (
-                                            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                                                /mês
+                                        {isCurrent && (
+                                            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold border border-emerald-500/30">
+                                                Plano Atual
                                             </span>
                                         )}
 
                                     </div>
 
-                                    {billingCycle === 'annually' &&
-                                        plan.monthlyPrice > 0 && (
-                                            <p className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1">
-                                                Faturado anualmente
-                                                {' '}
-                                                (€{(
-                                                    plan.annualPriceMonthly *
-                                                    12
-                                                ).toFixed(2)}
-                                                /ano)
-                                            </p>
-                                        )}
-
-                                    {isPaid && (
-                                        <div className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
-                                            <Gift className="w-3 h-3" />
-
-                                            14 DIAS GRÁTIS
-                                        </div>
-                                    )}
-
-                                </div>
-
-                                {/* FEATURES */}
-
-                                <div className="space-y-3">
-
-                                    <p className="text-xs font-bold text-slate-900 dark:text-slate-200 uppercase tracking-wider">
-                                        O que está incluído:
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 min-h-[36px]">
+                                        {plan.tagline}
                                     </p>
 
-                                    <ul className="space-y-2.5">
+                                    <div className="my-6 pb-6 border-b border-slate-100 dark:border-slate-800">
 
-                                        {plan.features.map(
-                                            (
-                                                feature,
-                                                index
-                                            ) => (
-                                                <li
-                                                    key={index}
-                                                    className="flex items-start gap-2.5 text-xs text-slate-600 dark:text-slate-300"
-                                                >
-                                                    <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                                        <div className="flex items-baseline gap-1">
 
-                                                    <span>
-                                                        {feature}
+                                            <span className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white">
+                                                {getPlanPrice(
+                                                    plan
+                                                )}
+                                            </span>
+
+                                            {plan.monthlyPrice >
+                                                0 && (
+                                                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                                                        /mês
                                                     </span>
-                                                </li>
-                                            )
+                                                )}
+
+                                        </div>
+
+                                        {billingCycle ===
+                                            'annually' &&
+                                            plan.monthlyPrice >
+                                            0 && (
+                                                <p className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1">
+                                                    Faturado anualmente (€{(
+                                                        plan.annualPriceMonthly *
+                                                        12
+                                                    ).toFixed(2)}
+                                                    /ano)
+                                                </p>
+                                            )}
+
+                                        {isPaid && (
+                                            <div className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
+
+                                                <Gift className="w-3 h-3" />
+
+                                                14 DIAS GRÁTIS
+
+                                            </div>
                                         )}
 
-                                    </ul>
+                                    </div>
+
+                                    <div className="space-y-3">
+
+                                        <p className="text-xs font-bold text-slate-900 dark:text-slate-200 uppercase tracking-wider">
+                                            O que está incluído:
+                                        </p>
+
+                                        <ul className="space-y-2.5">
+
+                                            {plan.features.map(
+                                                (
+                                                    feature,
+                                                    index
+                                                ) => (
+                                                    <li
+                                                        key={
+                                                            index
+                                                        }
+                                                        className="flex items-start gap-2.5 text-xs text-slate-600 dark:text-slate-300"
+                                                    >
+
+                                                        <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+
+                                                        <span>
+                                                            {
+                                                                feature
+                                                            }
+                                                        </span>
+
+                                                    </li>
+                                                )
+                                            )}
+
+                                        </ul>
+
+                                    </div>
 
                                 </div>
 
-                            </div>
+                                <div className="pt-8">
 
-                            {/* =================================================
-                                BOTÃO
-                            ================================================== */}
-
-                            <div className="pt-8">
-
-                                <button
-                                    type="button"
-                                    onClick={() =>
-                                        handleStartTrial(plan)
-                                    }
-                                    disabled={
-                                        isCurrent ||
-                                        isProcessing ||
-                                        (
-                                            isPaid &&
-                                            (
-                                                trialUsed ||
-                                                trialIsActive
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            handleStartTrial(
+                                                plan
                                             )
-                                        )
-                                    }
-                                    className={`w-full py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
-                                        isCurrent ||
-                                        (
-                                            isPaid &&
-                                            (
-                                                trialUsed ||
-                                                trialIsActive
-                                            )
-                                        )
+                                        }
+                                        disabled={
+                                            disabled
+                                        }
+                                        className={`w-full py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 ${disabled
                                             ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
                                             : isPopular
                                                 ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-600/30 cursor-pointer'
                                                 : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white cursor-pointer'
-                                    }`}
-                                >
+                                            }`}
+                                    >
 
-                                    {isCurrent ? (
-                                        <>
-                                            <CheckCircle2 className="w-4 h-4" />
+                                        {isCurrent ? (
+                                            <>
+                                                <CheckCircle2 className="w-4 h-4" />
 
-                                            Plano Atual Ativo
-                                        </>
-                                    ) : isPaid &&
-                                        trialIsActive ? (
-                                        <>
-                                            <Clock className="w-4 h-4" />
+                                                Plano Atual Ativo
+                                            </>
+                                        ) : isPaid &&
+                                            trialIsActive ? (
+                                            <>
+                                                <Clock className="w-4 h-4" />
 
-                                            Teste em Andamento
-                                        </>
-                                    ) : isPaid &&
-                                        trialUsed ? (
-                                        <>
-                                            <ShieldCheck className="w-4 h-4" />
+                                                Teste em Andamento
+                                            </>
+                                        ) : isPaid &&
+                                            trialUsed ? (
+                                            <>
+                                                <ShieldCheck className="w-4 h-4" />
 
-                                            Teste Já Utilizado
-                                        </>
-                                    ) : (
-                                        <>
-                                            <span>
-                                                {isPaid
-                                                    ? 'Começar 14 Dias Grátis'
-                                                    : plan.cta}
-                                            </span>
+                                                Teste Já Utilizado
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span>
+                                                    {isPaid
+                                                        ? 'Começar 14 Dias Grátis'
+                                                        : plan.cta}
+                                                </span>
 
-                                            <ArrowRight className="w-4 h-4" />
-                                        </>
-                                    )}
+                                                <ArrowRight className="w-4 h-4" />
+                                            </>
+                                        )}
 
-                                </button>
+                                    </button>
 
-                                {isPaid &&
-                                    trialAvailable && (
-                                        <p className="text-center text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-2">
-                                            Sem cobrança agora • 14 dias grátis
-                                        </p>
-                                    )}
+                                    {isPaid &&
+                                        trialAvailable && (
+                                            <p className="text-center text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-2">
+                                                Sem cobrança agora • 14 dias grátis
+                                            </p>
+                                        )}
+
+                                </div>
 
                             </div>
-
-                        </div>
-                    );
-                })}
+                        );
+                    }
+                )}
 
             </div>
 
-            {/* =====================================================
+            {/* ====================================================
                 BANNER
-            ====================================================== */}
+            ==================================================== */}
 
             <div className="rounded-3xl bg-slate-900 text-white p-6 sm:p-8 border border-slate-800 shadow-xl">
 
@@ -1099,9 +1183,7 @@ export const PlansPage: React.FC = () => {
 
                             <Gift className="w-4 h-4" />
 
-                            <span>
-                                14 dias grátis
-                            </span>
+                            14 dias grátis
 
                         </div>
 
@@ -1110,10 +1192,7 @@ export const PlansPage: React.FC = () => {
                         </h3>
 
                         <p className="text-xs text-slate-400 max-w-2xl">
-                            Escolha o plano, ative o período de teste
-                            gratuito e tenha acesso imediato às
-                            funcionalidades. Nenhum pagamento é realizado
-                            durante os 14 dias.
+                            Escolha o plano, ative o período de teste gratuito e tenha acesso imediato às funcionalidades. Nenhum pagamento é realizado durante os 14 dias.
                         </p>
 
                     </div>
@@ -1134,9 +1213,9 @@ export const PlansPage: React.FC = () => {
 
             </div>
 
-            {/* =====================================================
+            {/* ====================================================
                 FAQ
-            ====================================================== */}
+            ==================================================== */}
 
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 space-y-6">
 
@@ -1159,10 +1238,7 @@ export const PlansPage: React.FC = () => {
                         </h4>
 
                         <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
-                            Ao escolher o Pro ou Enterprise, o plano é
-                            ativado imediatamente e você recebe 14 dias
-                            gratuitos para testar todas as funcionalidades
-                            incluídas no plano.
+                            Ao escolher o Pro ou Enterprise, o plano é ativado imediatamente e você recebe 14 dias gratuitos para testar todas as funcionalidades incluídas no plano.
                         </p>
 
                     </div>
@@ -1174,10 +1250,7 @@ export const PlansPage: React.FC = () => {
                         </h4>
 
                         <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
-                            Não. A ativação do período de teste não realiza
-                            nenhum pagamento. O pagamento só deverá ocorrer
-                            após o término do período de teste caso o cliente
-                            decida continuar com o plano.
+                            Não. A ativação do período de teste não realiza nenhum pagamento.
                         </p>
 
                     </div>
@@ -1189,11 +1262,7 @@ export const PlansPage: React.FC = () => {
                         </h4>
 
                         <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
-                            Quando o período terminar, o cliente poderá
-                            continuar com o plano escolhido mediante a
-                            contratação/pagamento correspondente. O sistema
-                            não realiza uma cobrança fictícia durante o
-                            período gratuito.
+                            Quando o período terminar, você poderá continuar com o plano mediante contratação e pagamento correspondente.
                         </p>
 
                     </div>
@@ -1205,9 +1274,7 @@ export const PlansPage: React.FC = () => {
                         </h4>
 
                         <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
-                            Sim. Cada workspace pode utilizar uma única vez
-                            o período de teste gratuito de 14 dias para um
-                            plano pago.
+                            Sim. Cada workspace pode utilizar uma única vez o período de teste gratuito de 14 dias para um plano pago.
                         </p>
 
                     </div>
@@ -1216,13 +1283,17 @@ export const PlansPage: React.FC = () => {
 
             </div>
 
-            {/* =====================================================
-                MODAL DO TRIAL
-            ====================================================== */}
+            {/* ====================================================
+                MODAL
+            ==================================================== */}
 
             <Modal
-                isOpen={isTrialModalOpen}
-                onClose={closeTrialModal}
+                isOpen={
+                    isTrialModalOpen
+                }
+                onClose={
+                    closeTrialModal
+                }
                 title={
                     trialSuccess
                         ? 'Período de teste ativado'
@@ -1230,29 +1301,28 @@ export const PlansPage: React.FC = () => {
                 }
             >
 
-                {/* =================================================
-                    ERRO
-                ================================================== */}
+                {/* ERRO */}
 
-                {errorMessage && !trialSuccess && (
-                    <div className="mb-5 p-4 rounded-2xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 text-xs">
+                {errorMessage &&
+                    !trialSuccess && (
+                        <div className="mb-5 p-4 rounded-2xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 text-xs">
 
-                        <div className="flex items-start gap-2">
+                            <div className="flex items-start gap-2">
 
-                            <X className="w-4 h-4 shrink-0 mt-0.5" />
+                                <X className="w-4 h-4 shrink-0 mt-0.5" />
 
-                            <span>
-                                {errorMessage}
-                            </span>
+                                <span>
+                                    {
+                                        errorMessage
+                                    }
+                                </span>
+
+                            </div>
 
                         </div>
+                    )}
 
-                    </div>
-                )}
-
-                {/* =================================================
-                    SUCESSO
-                ================================================== */}
+                {/* SUCESSO */}
 
                 {trialSuccess ? (
 
@@ -1271,13 +1341,17 @@ export const PlansPage: React.FC = () => {
                             </h3>
 
                             <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                                O seu workspace agora está no plano
-                                {' '}
+
+                                O seu workspace agora está no plano{' '}
+
                                 <strong className="text-indigo-600 dark:text-indigo-400">
-                                    {selectedPlan?.name}
-                                </strong>
-                                {' '}
+                                    {
+                                        selectedPlan?.name
+                                    }
+                                </strong>{' '}
+
                                 sem qualquer cobrança.
+
                             </p>
 
                         </div>
@@ -1291,7 +1365,9 @@ export const PlansPage: React.FC = () => {
                                 </span>
 
                                 <strong className="text-slate-900 dark:text-white">
-                                    {selectedPlan?.name}
+                                    {
+                                        selectedPlan?.name
+                                    }
                                 </strong>
 
                             </div>
@@ -1315,10 +1391,12 @@ export const PlansPage: React.FC = () => {
                                 </span>
 
                                 <strong className="text-slate-900 dark:text-white text-right">
+
                                     {formatTrialDate(
                                         trialResult?.trial_started_at ??
                                         trialStartedAt
                                     )}
+
                                 </strong>
 
                             </div>
@@ -1330,10 +1408,12 @@ export const PlansPage: React.FC = () => {
                                 </span>
 
                                 <strong className="text-slate-900 dark:text-white text-right">
+
                                     {formatTrialDate(
                                         trialResult?.trial_ends_at ??
                                         trialEndsAt
                                     )}
+
                                 </strong>
 
                             </div>
@@ -1347,9 +1427,7 @@ export const PlansPage: React.FC = () => {
                                 <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
 
                                 <span>
-                                    Nenhum pagamento foi realizado.
-                                    Durante os próximos 14 dias você pode
-                                    utilizar o plano gratuitamente.
+                                    Nenhum pagamento foi realizado. Durante os próximos 14 dias você pode utilizar o plano gratuitamente.
                                 </span>
 
                             </div>
@@ -1358,7 +1436,9 @@ export const PlansPage: React.FC = () => {
 
                         <button
                             type="button"
-                            onClick={closeTrialModal}
+                            onClick={
+                                closeTrialModal
+                            }
                             className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all cursor-pointer"
                         >
                             Começar a utilizar o plano
@@ -1368,11 +1448,9 @@ export const PlansPage: React.FC = () => {
 
                 ) : (
 
-                    /* =================================================
-                       CONFIRMAÇÃO
-                    ================================================== */
-
                     <div className="space-y-5">
+
+                        {/* PLANO */}
 
                         <div className="p-5 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/60">
 
@@ -1391,11 +1469,15 @@ export const PlansPage: React.FC = () => {
                                     </p>
 
                                     <h3 className="text-lg font-black text-slate-900 dark:text-white">
-                                        {selectedPlan?.name}
+                                        {
+                                            selectedPlan?.name
+                                        }
                                     </h3>
 
                                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                        {selectedPlan?.tagline}
+                                        {
+                                            selectedPlan?.tagline
+                                        }
                                     </p>
 
                                 </div>
@@ -1403,6 +1485,8 @@ export const PlansPage: React.FC = () => {
                             </div>
 
                         </div>
+
+                        {/* INFORMAÇÕES */}
 
                         <div className="space-y-3">
 
@@ -1462,6 +1546,8 @@ export const PlansPage: React.FC = () => {
 
                         </div>
 
+                        {/* VALOR */}
+
                         <div className="p-4 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
 
                             <div className="flex justify-between items-center">
@@ -1471,6 +1557,7 @@ export const PlansPage: React.FC = () => {
                                 </span>
 
                                 <strong className="text-lg font-black text-slate-900 dark:text-white">
+
                                     {selectedPlan &&
                                         getPlanPrice(
                                             selectedPlan
@@ -1479,32 +1566,41 @@ export const PlansPage: React.FC = () => {
                                     <span className="text-xs font-normal text-slate-500">
                                         /mês
                                     </span>
+
                                 </strong>
 
                             </div>
 
-                            {billingCycle === 'annually' &&
+                            {billingCycle ===
+                                'annually' &&
                                 selectedPlan &&
-                                selectedPlan.monthlyPrice > 0 && (
+                                selectedPlan.monthlyPrice >
+                                0 && (
                                     <p className="text-[10px] text-indigo-500 mt-1 text-right">
-                                        Ciclo anual:
-                                        {' '}
-                                        €{(
+
+                                        Ciclo anual: €{(
                                             selectedPlan.annualPriceMonthly *
                                             12
                                         ).toFixed(2)}
                                         /ano
+
                                     </p>
                                 )}
 
                         </div>
 
+                        {/* BOTÕES */}
+
                         <div className="flex flex-col sm:flex-row gap-3">
 
                             <button
                                 type="button"
-                                onClick={closeTrialModal}
-                                disabled={isProcessing}
+                                onClick={
+                                    closeTrialModal
+                                }
+                                disabled={
+                                    isProcessing
+                                }
                                 className="w-full py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer disabled:opacity-50"
                             >
                                 Cancelar
@@ -1512,8 +1608,12 @@ export const PlansPage: React.FC = () => {
 
                             <button
                                 type="button"
-                                onClick={confirmStartTrial}
-                                disabled={isProcessing}
+                                onClick={
+                                    confirmStartTrial
+                                }
+                                disabled={
+                                    isProcessing
+                                }
                                 className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-bold transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
                             >
 

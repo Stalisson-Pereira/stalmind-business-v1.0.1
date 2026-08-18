@@ -65,6 +65,7 @@ export const AuthProvider: React.FC<{
     if (!currentUser) {
       setUser(null);
       setWorkspace(null);
+
       return false;
     }
 
@@ -73,7 +74,7 @@ export const AuthProvider: React.FC<{
 
     if (!currentWorkspace) {
       console.warn(
-        'Usuário autenticado, mas nenhum workspace foi encontrado.'
+        '[AuthContext] Nenhum workspace encontrado.'
       );
 
       setUser(currentUser);
@@ -85,6 +86,11 @@ export const AuthProvider: React.FC<{
     setUser(currentUser);
     setWorkspace(currentWorkspace);
 
+    console.log(
+      '[AuthContext] Workspace:',
+      currentWorkspace.id
+    );
+
     return true;
   };
 
@@ -95,12 +101,12 @@ export const AuthProvider: React.FC<{
   useEffect(() => {
     let mounted = true;
 
-    const init = async () => {
+    const initialize = async () => {
       try {
         await hydrateSession();
       } catch (error) {
         console.error(
-          'Erro ao inicializar autenticação:',
+          '[AuthContext] Erro ao inicializar:',
           error
         );
 
@@ -115,37 +121,40 @@ export const AuthProvider: React.FC<{
       }
     };
 
-    init();
+    initialize();
 
-    // ========================================================
-    // OBSERVAR ALTERAÇÕES DE AUTH
-    // ========================================================
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(
+      (event) => {
+        if (!mounted) {
+          return;
+        }
 
-    const subscription =
-      supabase?.auth.onAuthStateChange(
-        (event) => {
-          if (!mounted) return;
+        if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setWorkspace(null);
+          setLoading(false);
 
-          if (event === 'SIGNED_OUT') {
-            setUser(null);
-            setWorkspace(null);
-            setLoading(false);
-            return;
-          }
+          return;
+        }
 
-          if (
-            event === 'SIGNED_IN' ||
-            event === 'TOKEN_REFRESHED' ||
-            event === 'USER_UPDATED'
-          ) {
-            window.setTimeout(async () => {
-              if (!mounted) return;
+        if (
+          event === 'SIGNED_IN' ||
+          event === 'TOKEN_REFRESHED' ||
+          event === 'USER_UPDATED'
+        ) {
+          window.setTimeout(
+            async () => {
+              if (!mounted) {
+                return;
+              }
 
               try {
                 await hydrateSession();
               } catch (error) {
                 console.error(
-                  'Erro ao atualizar sessão:',
+                  '[AuthContext] Erro ao atualizar sessão:',
                   error
                 );
 
@@ -158,14 +167,16 @@ export const AuthProvider: React.FC<{
                   setLoading(false);
                 }
               }
-            }, 0);
-          }
+            },
+            0
+          );
         }
-      ).data.subscription;
+      }
+    );
 
     return () => {
       mounted = false;
-      subscription?.unsubscribe();
+      subscription.unsubscribe();
     };
   }, []);
 
@@ -188,6 +199,15 @@ export const AuthProvider: React.FC<{
 
       setUser(result.user);
       setWorkspace(result.workspace);
+
+      console.log(
+        '[AuthContext] Login:',
+        {
+          user: result.user?.id,
+          workspace:
+            result.workspace?.id,
+        }
+      );
     } finally {
       setLoading(false);
     }
@@ -213,10 +233,6 @@ export const AuthProvider: React.FC<{
           email,
           pass
         );
-
-      // ======================================================
-      // EMAIL PRECISA SER CONFIRMADO
-      // ======================================================
 
       if (
         result.emailConfirmationRequired
@@ -261,10 +277,12 @@ export const AuthProvider: React.FC<{
   // ==========================================================
 
   const logout = async () => {
-    await authService.logout();
-
-    setUser(null);
-    setWorkspace(null);
+    try {
+      await authService.logout();
+    } finally {
+      setUser(null);
+      setWorkspace(null);
+    }
   };
 
   // ==========================================================
@@ -274,6 +292,12 @@ export const AuthProvider: React.FC<{
   const updateWorkspace = async (
     data: Partial<Workspace>
   ) => {
+    if (!workspace?.id) {
+      throw new Error(
+        'Workspace não encontrado.'
+      );
+    }
+
     const updated =
       await authService.updateWorkspace(
         data
@@ -306,7 +330,7 @@ export const useAuth = () => {
 
   if (!context) {
     throw new Error(
-      'useAuth must be used within an AuthProvider'
+      'useAuth must be used dentro de AuthProvider'
     );
   }
 
