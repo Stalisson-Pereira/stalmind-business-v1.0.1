@@ -141,9 +141,6 @@ function normalizeCustomer(
     is_active:
       customer.is_active !== false,
 
-    status:
-      customer.status as Customer['status'],
-
     created_by:
       customer.created_by
         ? String(customer.created_by)
