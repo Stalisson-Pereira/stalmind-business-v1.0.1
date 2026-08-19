@@ -160,7 +160,7 @@ export const QuotesPage: React.FC<QuotesPageProps> = ({ initialOpenModal }) => {
           { id: 'draft', label: 'Rascunhos' },
           { id: 'sent', label: 'Enviados' },
           { id: 'accepted', label: 'Aceitos' },
-          { id: 'declined', label: 'Recusados' },
+          { id: 'rejected', label: 'Recusados' },
           { id: 'expired', label: 'Expirados' },
         ].map((tab) => (
           <button
@@ -216,7 +216,7 @@ export const QuotesPage: React.FC<QuotesPageProps> = ({ initialOpenModal }) => {
                         ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
                         : q.status === 'sent'
                         ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400'
-                        : q.status === 'declined'
+                        : q.status === 'rejected'
                         ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400'
                         : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
                     }`}
@@ -225,7 +225,7 @@ export const QuotesPage: React.FC<QuotesPageProps> = ({ initialOpenModal }) => {
                       ? 'Aceito'
                       : q.status === 'sent'
                       ? 'Enviado'
-                      : q.status === 'declined'
+                      : q.status === 'rejected'
                       ? 'Recusado'
                       : q.status === 'draft'
                       ? 'Rascunho'
@@ -267,7 +267,7 @@ export const QuotesPage: React.FC<QuotesPageProps> = ({ initialOpenModal }) => {
                   <option value="draft">Rascunho</option>
                   <option value="sent">Enviado</option>
                   <option value="accepted">Aceito</option>
-                  <option value="declined">Recusado</option>
+                  <option value="rejected">Recusado</option>
                   <option value="expired">Expirado</option>
                 </select>
               </div>

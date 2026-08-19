@@ -141,8 +141,9 @@ export type QuoteStatus =
   | 'draft'
   | 'sent'
   | 'accepted'
-  | 'declined'
-  | 'expired';
+  | 'rejected'
+  | 'expired'
+  | 'cancelled';
 
 export interface QuoteItem {
   id: string;

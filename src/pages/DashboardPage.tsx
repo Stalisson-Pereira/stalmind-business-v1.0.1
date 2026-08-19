@@ -160,11 +160,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
                                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                             }`}
                         >
-                          {q.status === 'accepted'
+                          {q.status === 'rejected'
                             ? 'Aceito'
                             : q.status === 'sent'
                               ? 'Enviado'
-                              : q.status === 'declined'
+                              : q.status === 'rejected'
                                 ? 'Recusado'
                                 : 'Rascunho'}
                         </span>
