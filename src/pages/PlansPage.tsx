@@ -5,11 +5,8 @@ import React, {
 } from 'react';
 
 import { useAuth } from '../contexts/AuthContext';
-
 import { notificationService } from '../services/notificationService';
-
 import { Modal } from '../components/common/Modal';
-
 import { supabase } from '../lib/supabaseClient';
 
 import {
@@ -50,16 +47,21 @@ interface TrialResult {
     workspace_id: string;
     plan: DatabasePlan;
     trial_used: boolean;
-    trial_started_at: string;
-    trial_ends_at: string;
+    trial_started_at: string | null;
+    trial_ends_at: string | null;
     days: number;
 }
 
 interface WorkspaceTrialState {
+    plan?: DatabasePlan | string | null;
+    planBilling?: BillingCycle | string | null;
+
     trialUsed?: boolean;
     trial_used?: boolean;
+
     trialStartedAt?: string | null;
     trial_started_at?: string | null;
+
     trialEndsAt?: string | null;
     trial_ends_at?: string | null;
 }
@@ -68,6 +70,23 @@ interface LocalTrialState {
     used: boolean;
     startedAt: string | null;
     endsAt: string | null;
+}
+
+interface TrialRpcResponse {
+    success?: boolean;
+
+    workspace_id?: string;
+    id?: string;
+
+    plan?: DatabasePlan;
+
+    trial_used?: boolean;
+    trial_started_at?: string | null;
+    trial_ends_at?: string | null;
+
+    days?: number;
+
+    name?: string;
 }
 
 /* ============================================================
@@ -275,9 +294,7 @@ export const PlansPage: React.FC = () => {
             }
 
             const end =
-                new Date(
-                    trialEndsAt
-                ).getTime();
+                new Date(trialEndsAt).getTime();
 
             const now =
                 Date.now();
@@ -328,13 +345,10 @@ export const PlansPage: React.FC = () => {
     ) => {
         try {
             const notifications =
-                notificationService
-                    .getNotifications();
+                notificationService.getNotifications();
 
             const updatedNotifications =
-                Array.isArray(
-                    notifications
-                )
+                Array.isArray(notifications)
                     ? [...notifications]
                     : [];
 
@@ -354,8 +368,7 @@ export const PlansPage: React.FC = () => {
                 read: false,
 
                 createdAt:
-                    new Date()
-                        .toISOString(),
+                    new Date().toISOString(),
 
                 link: '/plans',
             });
@@ -437,173 +450,279 @@ export const PlansPage: React.FC = () => {
        CONFIRMAR TRIAL
     ============================================================ */
 
-    const confirmStartTrial =
-        async () => {
-            if (
-                !selectedPlan ||
-                !workspace?.id
-            ) {
-                setErrorMessage(
-                    'Não foi possível identificar o workspace atual.'
-                );
+    const confirmStartTrial = async () => {
+        if (
+            !selectedPlan ||
+            !workspace?.id
+        ) {
+            setErrorMessage(
+                'Não foi possível identificar o workspace atual.'
+            );
 
-                return;
-            }
+            return;
+        }
 
-            if (
-                selectedPlan.id !== 'Pro' &&
-                selectedPlan.id !== 'Enterprise'
-            ) {
-                setErrorMessage(
-                    'Plano inválido.'
-                );
+        if (
+            selectedPlan.id !== 'Pro' &&
+            selectedPlan.id !== 'Enterprise'
+        ) {
+            setErrorMessage(
+                'Plano inválido.'
+            );
 
-                return;
-            }
+            return;
+        }
 
-            setIsProcessing(true);
-            setErrorMessage(null);
+        setIsProcessing(true);
+        setErrorMessage(null);
 
-            try {
-                const selectedPlanForDatabase =
-                    PLAN_DATABASE_MAP[
-                        selectedPlan.id
-                    ];
+        try {
+            const selectedPlanForDatabase =
+                PLAN_DATABASE_MAP[
+                    selectedPlan.id
+                ];
 
-                const {
-                    data,
-                    error,
-                } = await supabase.rpc(
-                    'start_workspace_trial',
-                    {
-                        target_workspace:
-                            workspace.id,
+            const {
+                data,
+                error,
+            } = await supabase.rpc(
+                'start_workspace_trial',
+                {
+                    target_workspace:
+                        workspace.id,
 
-                        selected_plan:
-                            selectedPlanForDatabase,
-                    }
-                );
-
-                if (error) {
-                    console.error(
-                        '[PlansPage] Erro ao iniciar trial:',
-                        error
-                    );
-
-                    throw error;
-                }
-
-                console.log(
-                    '[PlansPage] Trial iniciado:',
-                    data
-                );
-
-                if (!data) {
-                    throw new Error(
-                        'O Supabase não retornou os dados do período de teste.'
-                    );
-                }
-
-                const result =
-                    data as TrialResult;
-
-                if (
-                    result.success !== true
-                ) {
-                    throw new Error(
-                        'Não foi possível iniciar o período de teste.'
-                    );
-                }
-
-                await updateWorkspace({
-                    plan:
+                    selected_plan:
                         selectedPlanForDatabase,
+                }
+            );
 
-                    planBilling:
-                        billingCycle,
-                });
-
-                createTrialNotification(
-                    selectedPlan
-                );
-
-                setLocalTrial({
-                    used:
-                        result.trial_used ??
-                        true,
-
-                    startedAt:
-                        result.trial_started_at ??
-                        null,
-
-                    endsAt:
-                        result.trial_ends_at ??
-                        null,
-                });
-
-                setTrialResult(
-                    result
-                );
-
-                setTrialSuccess(
-                    true
-                );
-            } catch (
-                error: unknown
-            ) {
+            if (error) {
                 console.error(
-                    '[PlansPage] Erro completo:',
+                    '[PlansPage] Erro ao iniciar trial:',
                     error
                 );
 
-                let message =
-                    'Não foi possível iniciar o período de teste.';
+                throw error;
+            }
 
-                if (
-                    typeof error ===
-                        'object' &&
-                    error !== null
-                ) {
-                    const errorData =
-                        error as {
-                            code?: string;
-                            status?: number;
-                            message?: string;
-                        };
+            console.log(
+                '[PlansPage] Trial iniciado:',
+                data
+            );
 
-                    if (
-                        errorData.code ===
-                            'PGRST202' ||
-                        errorData.status ===
-                            404
-                    ) {
-                        message =
-                            'A função start_workspace_trial não foi encontrada ou sua assinatura está incorreta no Supabase.';
-                    } else if (
-                        errorData.code ===
-                        '42501'
-                    ) {
-                        message =
-                            'Você não possui permissão para iniciar o período de teste neste workspace.';
-                    } else if (
-                        typeof errorData.message ===
-                            'string' &&
-                        errorData.message.trim()
-                    ) {
-                        message =
-                            errorData.message;
-                    }
-                }
+            /* ====================================================
+               NORMALIZAR RESPOSTA DA RPC
+            ==================================================== */
 
-                setErrorMessage(
-                    message
-                );
-            } finally {
-                setIsProcessing(
-                    false
+            const rawResult =
+                Array.isArray(data)
+                    ? data[0]
+                    : data;
+
+            if (
+                !rawResult ||
+                typeof rawResult !== 'object'
+            ) {
+                throw new Error(
+                    'O Supabase não retornou os dados do período de teste.'
                 );
             }
-        };
+
+            const result =
+                rawResult as TrialRpcResponse;
+
+            console.log(
+                '[PlansPage] Resposta normalizada:',
+                result
+            );
+
+            /* ====================================================
+               VALIDAR TRIAL
+            ==================================================== */
+
+            const returnedPlan =
+                result.plan ??
+                selectedPlanForDatabase;
+
+            const trialWasStarted =
+                result.trial_used === true &&
+                !!result.trial_started_at &&
+                !!result.trial_ends_at &&
+                (
+                    returnedPlan ===
+                        selectedPlanForDatabase
+                );
+
+            const explicitSuccess =
+                result.success === true;
+
+            if (
+                !trialWasStarted &&
+                !explicitSuccess
+            ) {
+                console.error(
+                    '[PlansPage] Resposta inesperada da RPC:',
+                    rawResult
+                );
+
+                throw new Error(
+                    'O período de teste não foi confirmado pelo Supabase.'
+                );
+            }
+
+            /* ====================================================
+               ATUALIZAR WORKSPACE
+            ==================================================== */
+
+            await updateWorkspace({
+                plan:
+                    selectedPlanForDatabase,
+
+                planBilling:
+                    billingCycle,
+            });
+
+            /* ====================================================
+               NOTIFICAÇÃO
+            ==================================================== */
+
+            createTrialNotification(
+                selectedPlan
+            );
+
+            /* ====================================================
+               ATUALIZAR TRIAL LOCAL
+            ==================================================== */
+
+            const startedAt =
+                result.trial_started_at ??
+                new Date().toISOString();
+
+            const endsAt =
+                result.trial_ends_at ??
+                null;
+
+            setLocalTrial({
+                used:
+                    result.trial_used ??
+                    true,
+
+                startedAt,
+
+                endsAt,
+            });
+
+            /* ====================================================
+               RESULTADO NORMALIZADO
+            ==================================================== */
+
+            const normalizedResult:
+                TrialResult = {
+                    success: true,
+
+                    workspace_id:
+                        result.workspace_id ??
+                        result.id ??
+                        workspace.id,
+
+                    plan:
+                        result.plan ??
+                        selectedPlanForDatabase,
+
+                    trial_used:
+                        result.trial_used ??
+                        true,
+
+                    trial_started_at:
+                        startedAt,
+
+                    trial_ends_at:
+                        endsAt,
+
+                    days:
+                        result.days ??
+                        14,
+                };
+
+            setTrialResult(
+                normalizedResult
+            );
+
+            /* ====================================================
+               SUCESSO
+            ==================================================== */
+
+            setTrialSuccess(
+                true
+            );
+
+            console.log(
+                '[PlansPage] Trial confirmado com sucesso:',
+                normalizedResult
+            );
+        } catch (
+            error: unknown
+        ) {
+            console.error(
+                '[PlansPage] Erro completo:',
+                error
+            );
+
+            let message =
+                'Não foi possível iniciar o período de teste.';
+
+            if (
+                typeof error === 'object' &&
+                error !== null
+            ) {
+                const errorData =
+                    error as {
+                        code?: string;
+                        status?: number;
+                        message?: string;
+                        details?: string;
+                        hint?: string;
+                    };
+
+                if (
+                    errorData.code ===
+                        'PGRST202' ||
+                    errorData.status ===
+                        404
+                ) {
+                    message =
+                        'A função start_workspace_trial não foi encontrada ou sua assinatura está incorreta no Supabase.';
+                } else if (
+                    errorData.code ===
+                    '42501'
+                ) {
+                    message =
+                        'Você não possui permissão para iniciar o período de teste neste workspace.';
+                } else if (
+                    typeof errorData.message ===
+                        'string' &&
+                    errorData.message.trim()
+                ) {
+                    message =
+                        errorData.message;
+                }
+            } else if (
+                error instanceof Error &&
+                error.message.trim()
+            ) {
+                message =
+                    error.message;
+            }
+
+            setErrorMessage(
+                message
+            );
+        } finally {
+            setIsProcessing(
+                false
+            );
+        }
+    };
 
     /* ============================================================
        PLANO STARTER
@@ -651,8 +770,7 @@ export const PlansPage: React.FC = () => {
 
                 try {
                     const notifications =
-                        notificationService
-                            .getNotifications();
+                        notificationService.getNotifications();
 
                     const updatedNotifications =
                         Array.isArray(
@@ -678,8 +796,7 @@ export const PlansPage: React.FC = () => {
                         read: false,
 
                         createdAt:
-                            new Date()
-                                .toISOString(),
+                            new Date().toISOString(),
 
                         link:
                             '/plans',
@@ -687,13 +804,15 @@ export const PlansPage: React.FC = () => {
 
                     localStorage.setItem(
                         'stalmind_app_notifications',
-
                         JSON.stringify(
                             updatedNotifications
                         )
                     );
                 } catch {
-                    // Notificação não deve bloquear a alteração.
+                    /*
+                     * A notificação não deve bloquear
+                     * a alteração do plano.
+                     */
                 }
             } catch (
                 error: unknown
