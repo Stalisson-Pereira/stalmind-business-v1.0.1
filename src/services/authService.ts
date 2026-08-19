@@ -740,11 +740,6 @@ export const authService = {
           )
         );
 
-        console.log(
-          '[AuthContext] Workspace:',
-          workspace.id
-        );
-
         return workspace;
       }
 
