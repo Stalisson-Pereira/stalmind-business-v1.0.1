@@ -28,48 +28,28 @@ const MOCK_WORKSPACE: Workspace = {
   name: 'Silva Business Studio',
   slug: 'silva-studio',
   ownerId: MOCK_USER.id,
-
   taxId: '234567890',
-
-  address:
-    'Avenida da Liberdade 120, Lisboa',
-
-  email:
-    'contacto@silvastudio.pt',
-
-  phone:
-    '+351 210 000 111',
-
+  address: 'Avenida da Liberdade 120, Lisboa',
+  email: 'contacto@silvastudio.pt',
+  phone: '+351 210 000 111',
   currency: 'EUR',
-
   defaultTaxRate: 23,
-
   plan: 'free',
-
   planBilling: undefined,
-
-  createdAt:
-    new Date().toISOString(),
-
-  trialStartedAt:
-    undefined,
-
-  trialEndsAt:
-    undefined,
-
-  trialUsed:
-    false,
+  createdAt: new Date().toISOString(),
+  trialStartedAt: undefined,
+  trialEndsAt: undefined,
+  trialUsed: false,
 };
 
 // ============================================================
 // CONSTANTES
 // ============================================================
 
-const SESSION_KEY =
-  'stalmind_session';
+const SESSION_KEY = 'stalmind_session';
+const WORKSPACE_KEY = 'stalmind_workspace';
 
-const WORKSPACE_KEY =
-  'stalmind_workspace';
+const TRIAL_DAYS = 14;
 
 export const PLANS = {
   FREE: 'free',
@@ -79,12 +59,6 @@ export const PLANS = {
 
 export type StalmindPlan =
   (typeof PLANS)[keyof typeof PLANS];
-
-const TRIAL_DAYS = 14;
-
-// Mantido para compatibilidade com regras futuras.
-// O início do trial real é controlado pelo backend/RPC.
-void TRIAL_DAYS;
 
 // ============================================================
 // LIMITES DOS PLANOS
@@ -195,10 +169,9 @@ export const PLAN_LIMITS = {
 function normalizePlan(
   plan?: string | null
 ): StalmindPlan {
-  const value =
-    String(plan || '')
-      .trim()
-      .toLowerCase();
+  const value = String(plan || '')
+    .trim()
+    .toLowerCase();
 
   if (value === PLANS.ENTERPRISE) {
     return PLANS.ENTERPRISE;
@@ -235,8 +208,7 @@ function mapUser(
   user: any
 ): User {
   return {
-    id:
-      user.id,
+    id: user.id,
 
     email:
       user.email || '',
@@ -281,9 +253,7 @@ function mapWorkspace(
       workspace.slug || '',
 
     ownerId:
-      ownerId ||
-      workspace.owner_id ||
-      '',
+      ownerId || '',
 
     taxId:
       workspace.tax_id,
@@ -354,7 +324,7 @@ function mapWorkspace(
 }
 
 // ============================================================
-// TRIAL
+// TRIAL ATIVO
 // ============================================================
 
 function hasActiveTrial(
@@ -374,6 +344,10 @@ function hasActiveTrial(
     timestamp > Date.now()
   );
 }
+
+// ============================================================
+// TRIAL EXPIRADO
+// ============================================================
 
 function hasExpiredTrial(
   workspace: Workspace | null
@@ -410,7 +384,7 @@ export function getEffectivePlan(
 }
 
 // ============================================================
-// RECURSO DO PLANO
+// VERIFICAR RECURSO
 // ============================================================
 
 export function hasPlanFeature(
@@ -444,7 +418,7 @@ export function hasPlanFeature(
 }
 
 // ============================================================
-// LIMITE DO PLANO
+// VERIFICAR LIMITE
 // ============================================================
 
 export function getPlanLimit(
@@ -463,7 +437,7 @@ export function getPlanLimit(
 }
 
 // ============================================================
-// ERROS DO TRIAL
+// ERRO TRIAL UTILIZADO
 // ============================================================
 
 function isTrialAlreadyUsedError(
@@ -475,23 +449,17 @@ function isTrialAlreadyUsedError(
     ).toLowerCase();
 
   return (
-    message.includes(
-      'trial já utilizado'
-    ) ||
-    message.includes(
-      'trial ja utilizado'
-    ) ||
-    message.includes(
-      'período de teste já utilizado'
-    ) ||
-    message.includes(
-      'periodo de teste ja utilizado'
-    ) ||
-    message.includes(
-      'trial_used'
-    )
+    message.includes('trial já utilizado') ||
+    message.includes('trial ja utilizado') ||
+    message.includes('período de teste já utilizado') ||
+    message.includes('periodo de teste ja utilizado') ||
+    message.includes('trial_used')
   );
 }
+
+// ============================================================
+// ERRO TRIAL ATIVO
+// ============================================================
 
 function isTrialAlreadyActiveError(
   error: any
@@ -503,13 +471,25 @@ function isTrialAlreadyActiveError(
 
   return (
     error?.code === 'P0001' &&
-    message.includes('trial') &&
-    message.includes('ativo')
+    (
+      (
+        message.includes('já possui') ||
+        message.includes('ja possui')
+      ) &&
+      message.includes('trial')
+    ||
+      (
+        message.includes('trial') &&
+        message.includes('ativo')
+      ) ||
+      message.includes('período de teste ativo') ||
+      message.includes('periodo de teste ativo')
+    )
   );
 }
 
 // ============================================================
-// VALIDAR PLANO DO TRIAL
+// VALIDAR PLANO DE TRIAL
 // ============================================================
 
 function validateTrialPlan(
@@ -545,9 +525,9 @@ export const authService = {
   async getCurrentUser(): Promise<User | null> {
     try {
 
-      // --------------------------------------------------------
-      // MODO LOCAL / DEMO
-      // --------------------------------------------------------
+      // ------------------------------------------------------
+      // MODO DEMO / LOCAL
+      // ------------------------------------------------------
 
       if (
         !isSupabaseConfigured ||
@@ -575,59 +555,42 @@ export const authService = {
         }
       }
 
-      // --------------------------------------------------------
-      // SUPABASE
-      //
-      // IMPORTANTE:
-      // Primeiro verificamos a sessão.
-      // Não chamamos getUser() sem sessão.
-      // --------------------------------------------------------
+      // ------------------------------------------------------
+      // PRIMEIRO VERIFICAR SESSION
+      // ------------------------------------------------------
 
       const {
-        data: sessionData,
-        error: sessionError,
+        data,
+        error,
       } =
         await supabase.auth.getSession();
 
-      if (sessionError) {
-        console.error(
-          '[authService] Erro ao obter sessão:',
-          sessionError
+      if (error) {
+        console.warn(
+          '[authService] Não foi possível obter a sessão:',
+          error.message
         );
 
         return null;
       }
 
-      const session =
-        sessionData.session;
+      // ------------------------------------------------------
+      // SEM LOGIN = NORMAL
+      // NÃO É ERRO
+      // ------------------------------------------------------
 
-      if (!session?.user) {
-        // Não é erro.
-        // Simplesmente não existe usuário autenticado.
+      if (!data.session?.user) {
         return null;
       }
 
       return mapUser(
-        session.user
+        data.session.user
       );
 
-    } catch (error: any) {
+    } catch (error) {
 
-      // AuthSessionMissingError não deve
-      // quebrar a aplicação.
-
-      if (
-        error?.name ===
-          'AuthSessionMissingError' ||
-        error?.message?.includes(
-          'Auth session missing'
-        )
-      ) {
-        return null;
-      }
-
-      console.error(
-        '[authService] Erro inesperado ao obter usuário:',
+      console.warn(
+        '[authService] Falha ao verificar usuário:',
         error
       );
 
@@ -642,18 +605,18 @@ export const authService = {
   async getCurrentWorkspace(): Promise<Workspace | null> {
     try {
 
-      // --------------------------------------------------------
+      // ======================================================
       // SUPABASE
-      // --------------------------------------------------------
+      // ======================================================
 
       if (
         isSupabaseConfigured &&
         supabase
       ) {
 
-        // ------------------------------------------------------
-        // PRIMEIRO: VERIFICAR SESSÃO
-        // ------------------------------------------------------
+        // ----------------------------------------------------
+        // OBTER SESSÃO
+        // ----------------------------------------------------
 
         const {
           data: sessionData,
@@ -662,27 +625,34 @@ export const authService = {
           await supabase.auth.getSession();
 
         if (sessionError) {
-          console.error(
+          console.warn(
             '[authService] Erro ao obter sessão:',
-            sessionError
+            sessionError.message
           );
 
           return null;
         }
 
-        const session =
-          sessionData.session;
+        const user =
+          sessionData.session?.user;
 
-        if (!session?.user) {
+        // ----------------------------------------------------
+        // SEM SESSÃO
+        // ----------------------------------------------------
+
+        if (!user) {
           return null;
         }
 
-        const userId =
-          session.user.id;
-
-        // ------------------------------------------------------
+        // ----------------------------------------------------
         // BUSCAR MEMBRO
-        // ------------------------------------------------------
+        // ----------------------------------------------------
+        //
+        // NÃO USAMOS workspaces(owner_id)
+        // NÃO USAMOS workspaces(*)
+        //
+        // O relacionamento é resolvido manualmente.
+        // ----------------------------------------------------
 
         const {
           data: member,
@@ -690,14 +660,16 @@ export const authService = {
         } =
           await supabase
             .from('workspace_members')
-            .select(`
-              user_id,
-              workspace_id,
-              role
-            `)
+            .select(
+              `
+                user_id,
+                workspace_id,
+                role
+              `
+            )
             .eq(
               'user_id',
-              userId
+              user.id
             )
             .limit(1)
             .maybeSingle();
@@ -713,33 +685,39 @@ export const authService = {
 
         if (!member) {
           console.warn(
-            '[authService] Nenhum workspace associado ao usuário:',
-            userId
+            '[authService] Usuário não possui workspace associado:',
+            user.id
           );
 
           return null;
         }
 
-        const workspaceId =
-          member.workspace_id;
+        // ----------------------------------------------------
+        // VALIDAR WORKSPACE ID
+        // ----------------------------------------------------
 
         if (
-          !workspaceId ||
           !isValidUUID(
-            workspaceId
+            member.workspace_id
           )
         ) {
           console.error(
             '[authService] workspace_id inválido:',
-            workspaceId
+            member.workspace_id
           );
 
           return null;
         }
 
-        // ------------------------------------------------------
+        // ----------------------------------------------------
         // BUSCAR WORKSPACE
-        // ------------------------------------------------------
+        // ----------------------------------------------------
+        //
+        // ATENÇÃO:
+        // owner_id NÃO EXISTE NA SUA TABELA.
+        //
+        // Portanto NÃO está no SELECT.
+        // ----------------------------------------------------
 
         const {
           data: workspaceData,
@@ -747,36 +725,37 @@ export const authService = {
         } =
           await supabase
             .from('workspaces')
-            .select(`
-              id,
-              name,
-              slug,
-              owner_id,
-              legal_name,
-              tax_id,
-              email,
-              phone,
-              website,
-              address,
-              city,
-              postal_code,
-              country,
-              currency,
-              locale,
-              timezone,
-              logo_url,
-              default_tax_rate,
-              plan,
-              plan_billing,
-              trial_started_at,
-              trial_ends_at,
-              trial_used,
-              created_at,
-              updated_at
-            `)
+            .select(
+              `
+                id,
+                name,
+                slug,
+                legal_name,
+                tax_id,
+                email,
+                phone,
+                website,
+                address,
+                city,
+                postal_code,
+                country,
+                currency,
+                locale,
+                timezone,
+                logo_url,
+                default_tax_rate,
+                plan,
+                plan_billing,
+                trial_started_at,
+                trial_ends_at,
+                trial_used,
+                created_at,
+                updated_at
+              `
+            )
             .eq(
               'id',
-              workspaceId
+              member.workspace_id
             )
             .maybeSingle();
 
@@ -790,23 +769,27 @@ export const authService = {
         }
 
         if (!workspaceData) {
-          console.error(
+          console.warn(
             '[authService] Workspace não encontrado:',
-            workspaceId
+            member.workspace_id
           );
 
           return null;
         }
 
-        // ------------------------------------------------------
-        // DETERMINAR OWNER
-        // ------------------------------------------------------
+        // ----------------------------------------------------
+        // BUSCAR OWNER ATRAVÉS DE workspace_members
+        // ----------------------------------------------------
 
-        let ownerId =
-          workspaceData.owner_id ||
-          undefined;
+        let ownerId: string | undefined;
 
-        if (!ownerId) {
+        if (
+          member.role === 'owner'
+        ) {
+          ownerId =
+            member.user_id;
+
+        } else {
 
           const {
             data: ownerMember,
@@ -814,12 +797,14 @@ export const authService = {
           } =
             await supabase
               .from('workspace_members')
-              .select(`
-                user_id
-              `)
+              .select(
+                `
+                  user_id
+                `
+              )
               .eq(
                 'workspace_id',
-                workspaceId
+                member.workspace_id
               )
               .eq(
                 'role',
@@ -830,19 +815,18 @@ export const authService = {
 
           if (ownerError) {
             console.warn(
-              '[authService] Não foi possível obter owner:',
+              '[authService] Não foi possível obter o proprietário:',
               ownerError
             );
           }
 
           ownerId =
-            ownerMember?.user_id ||
-            undefined;
+            ownerMember?.user_id;
         }
 
-        // ------------------------------------------------------
+        // ----------------------------------------------------
         // MAPEAR WORKSPACE
-        // ------------------------------------------------------
+        // ----------------------------------------------------
 
         const workspace =
           mapWorkspace(
@@ -851,9 +835,9 @@ export const authService = {
             ownerId
           );
 
-        // ------------------------------------------------------
-        // SALVAR CACHE
-        // ------------------------------------------------------
+        // ----------------------------------------------------
+        // CACHE LOCAL
+        // ----------------------------------------------------
 
         localStorage.setItem(
           WORKSPACE_KEY,
@@ -865,9 +849,9 @@ export const authService = {
         return workspace;
       }
 
-      // ========================================================
+      // ======================================================
       // LOCAL / DEMO
-      // ========================================================
+      // ======================================================
 
       const saved =
         localStorage.getItem(
@@ -875,11 +859,15 @@ export const authService = {
         );
 
       if (saved) {
+
         try {
+
           return JSON.parse(
             saved
           ) as Workspace;
+
         } catch {
+
           localStorage.removeItem(
             WORKSPACE_KEY
           );
@@ -888,17 +876,7 @@ export const authService = {
 
       return MOCK_WORKSPACE;
 
-    } catch (error: any) {
-
-      if (
-        error?.name ===
-          'AuthSessionMissingError' ||
-        error?.message?.includes(
-          'Auth session missing'
-        )
-      ) {
-        return null;
-      }
+    } catch (error) {
 
       console.error(
         '[authService] Erro inesperado ao carregar workspace:',
@@ -920,10 +898,6 @@ export const authService = {
     user: User;
     workspace: Workspace;
   }> {
-
-    // --------------------------------------------------------
-    // SUPABASE
-    // --------------------------------------------------------
 
     if (
       isSupabaseConfigured &&
@@ -981,7 +955,7 @@ export const authService = {
         workspace;
 
       // ------------------------------------------------------
-      // CACHE
+      // SALVAR SESSÃO
       // ------------------------------------------------------
 
       localStorage.setItem(
@@ -1061,10 +1035,6 @@ export const authService = {
     emailConfirmationRequired?: boolean;
   }> {
 
-    // --------------------------------------------------------
-    // SUPABASE
-    // --------------------------------------------------------
-
     if (
       isSupabaseConfigured &&
       supabase
@@ -1138,10 +1108,15 @@ export const authService = {
         await this.getCurrentWorkspace();
 
       if (!workspace) {
+
         throw new Error(
           'Usuário criado, mas nenhum workspace foi associado. Verifique a criação do workspace no Supabase.'
         );
       }
+
+      // ------------------------------------------------------
+      // NOVO USUÁRIO = FREE
+      // ------------------------------------------------------
 
       localStorage.setItem(
         SESSION_KEY,
@@ -1334,7 +1309,7 @@ export const authService = {
   },
 
   // ==========================================================
-  // INICIAR TRIAL
+  // START TRIAL
   // ==========================================================
 
   async startTrial(
@@ -1373,20 +1348,26 @@ export const authService = {
 
     const {
       data: sessionData,
+      error: sessionError,
     } =
       await supabase.auth.getSession();
 
-    const session =
-      sessionData.session;
+    if (sessionError) {
+      throw new Error(
+        'Não foi possível verificar a sessão do usuário.'
+      );
+    }
 
-    if (!session?.user) {
+    if (
+      !sessionData.session?.user
+    ) {
       throw new Error(
         'Usuário não autenticado.'
       );
     }
 
     // --------------------------------------------------------
-    // WORKSPACE AUTENTICADO
+    // WORKSPACE
     // --------------------------------------------------------
 
     const currentWorkspace =
@@ -1432,7 +1413,7 @@ export const authService = {
     }
 
     // --------------------------------------------------------
-    // DEVE ESTAR NO FREE
+    // PRIMEIRO TRIAL SOMENTE NO FREE
     // --------------------------------------------------------
 
     if (
@@ -1508,22 +1489,6 @@ export const authService = {
       );
     }
 
-    // --------------------------------------------------------
-    // ATUALIZAR CACHE
-    // --------------------------------------------------------
-
-    const updatedWorkspace =
-      await this.getCurrentWorkspace();
-
-    if (updatedWorkspace) {
-      localStorage.setItem(
-        WORKSPACE_KEY,
-        JSON.stringify(
-          updatedWorkspace
-        )
-      );
-    }
-
     return true;
   },
 
@@ -1550,6 +1515,10 @@ export const authService = {
         'Nenhum workspace encontrado.'
       );
     }
+
+    // --------------------------------------------------------
+    // PRIMEIRO TRIAL
+    // --------------------------------------------------------
 
     if (
       workspace.plan ===
@@ -1580,6 +1549,10 @@ export const authService = {
 
       return updated;
     }
+
+    // --------------------------------------------------------
+    // TRIAL JÁ USADO
+    // --------------------------------------------------------
 
     if (
       workspace.trialUsed
@@ -1678,19 +1651,7 @@ export const authService = {
       );
     }
 
-    const updated =
-      await this.getCurrentWorkspace();
-
-    if (updated) {
-      localStorage.setItem(
-        WORKSPACE_KEY,
-        JSON.stringify(
-          updated
-        )
-      );
-    }
-
-    return updated;
+    return this.getCurrentWorkspace();
   },
 
   // ==========================================================
@@ -1743,7 +1704,7 @@ export const authService = {
   },
 
   // ==========================================================
-  // ALTERAR SENHA
+  // SET PASSWORD
   // ==========================================================
 
   async setPassword(
@@ -1765,6 +1726,21 @@ export const authService = {
     ) {
       throw new Error(
         'A senha deve ter pelo menos 6 caracteres.'
+      );
+    }
+
+    const {
+      data: sessionData,
+      error: sessionError,
+    } =
+      await supabase.auth.getSession();
+
+    if (
+      sessionError ||
+      !sessionData.session
+    ) {
+      throw new Error(
+        'A sessão de recuperação não está disponível ou expirou.'
       );
     }
 
@@ -1801,7 +1777,7 @@ export const authService = {
     }
 
     // --------------------------------------------------------
-    // PROTEÇÕES
+    // PROTEGER ID
     // --------------------------------------------------------
 
     if (
@@ -1814,6 +1790,10 @@ export const authService = {
       );
     }
 
+    // --------------------------------------------------------
+    // PROTEGER OWNER
+    // --------------------------------------------------------
+
     if (
       data.ownerId &&
       data.ownerId !==
@@ -1824,19 +1804,27 @@ export const authService = {
       );
     }
 
+    // --------------------------------------------------------
+    // PROTEGER PLANO
+    // --------------------------------------------------------
+
     if (
       data.plan &&
       normalizePlan(
         data.plan
       ) !==
-        normalizePlan(
-          currentWorkspace.plan
-        )
+      normalizePlan(
+        currentWorkspace.plan
+      )
     ) {
       throw new Error(
         'A alteração de plano deve ser realizada através do processo de seleção de plano ou pagamento.'
       );
     }
+
+    // --------------------------------------------------------
+    // PROTEGER TRIAL
+    // --------------------------------------------------------
 
     if (
       data.trialUsed !== undefined &&
@@ -1868,15 +1856,14 @@ export const authService = {
       );
     }
 
-    const updatedWorkspace:
-      Workspace = {
-        ...currentWorkspace,
-        ...data,
-      };
+    const updatedWorkspace: Workspace = {
+      ...currentWorkspace,
+      ...data,
+    };
 
-    // --------------------------------------------------------
+    // ========================================================
     // SUPABASE
-    // --------------------------------------------------------
+    // ========================================================
 
     if (
       isSupabaseConfigured &&
@@ -1890,6 +1877,7 @@ export const authService = {
         await supabase
           .from('workspaces')
           .update({
+
             name:
               updatedWorkspace.name,
 
@@ -1971,9 +1959,9 @@ export const authService = {
       return result;
     }
 
-    // --------------------------------------------------------
+    // ========================================================
     // LOCAL / DEMO
-    // --------------------------------------------------------
+    // ========================================================
 
     localStorage.setItem(
       WORKSPACE_KEY,
