@@ -159,137 +159,109 @@ export const AuthProvider: React.FC<{
      INICIALIZAÇÃO
   ========================================================== */
 
-  useEffect(() => {
-    let mounted = true;
+useEffect(() => {
+  let mounted = true;
 
-    const initialize =
-      async () => {
-        try {
-          await hydrateSession();
-        } catch (error) {
-          console.error(
-            '[AuthContext] Erro durante inicialização:',
-            error
-          );
+  const initialize = async () => {
+    try {
+      await hydrateSession();
+    } catch (error) {
+      console.error(
+        '[AuthContext] Erro durante inicialização:',
+        error
+      );
 
-          if (mounted) {
-            setUser(null);
-            setWorkspace(null);
-          }
-        } finally {
-          if (mounted) {
-            setLoading(false);
-          }
-        }
-      };
-
-    void initialize();
-
-    /* --------------------------------------------------------
-       SUPABASE NÃO CONFIGURADO
-    -------------------------------------------------------- */
-
-    if (!supabase) {
-      return () => {
-        mounted = false;
-      };
+      if (mounted) {
+        setUser(null);
+        setWorkspace(null);
+      }
+    } finally {
+      if (mounted) {
+        setLoading(false);
+      }
     }
+  };
 
-    /* --------------------------------------------------------
-       OBSERVAR ALTERAÇÕES DE AUTENTICAÇÃO
-    -------------------------------------------------------- */
+  void initialize();
 
-    const {
-      data: {
-        subscription,
-      },
-    } =
-      supabase.auth.onAuthStateChange(
-        (event) => {
+  if (!supabase) {
+    return () => {
+      mounted = false;
+    };
+  }
+
+  const {
+    data: {
+      subscription,
+    },
+  } = supabase.auth.onAuthStateChange(
+    (event) => {
+      if (!mounted) {
+        return;
+      }
+
+      console.log(
+        '[AuthContext] Auth event:',
+        event
+      );
+
+      // ======================================================
+      // LOGOUT
+      // ======================================================
+
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setWorkspace(null);
+        setLoading(false);
+
+        return;
+      }
+
+      // ======================================================
+      // LOGIN / REFRESH / UPDATE
+      // ======================================================
+
+      if (
+        event === 'SIGNED_IN' ||
+        event === 'TOKEN_REFRESHED' ||
+        event === 'USER_UPDATED'
+      ) {
+        window.setTimeout(() => {
           if (!mounted) {
             return;
           }
 
-          console.log(
-            '[AuthContext] Auth event:',
-            event
-          );
+          void (async () => {
+            setLoading(true);
 
-          /* --------------------------------------------------
-             LOGOUT
-          -------------------------------------------------- */
+            try {
+              await hydrateSession();
+            } catch (error) {
+              console.error(
+                '[AuthContext] Erro ao sincronizar sessão:',
+                error
+              );
 
-          if (
-            event === 'SIGNED_OUT'
-          ) {
-            setUser(null);
-            setWorkspace(null);
-            setLoading(false);
+              if (mounted) {
+                setUser(null);
+                setWorkspace(null);
+              }
+            } finally {
+              if (mounted) {
+                setLoading(false);
+              }
+            }
+          })();
+        }, 0);
+      }
+    }
+  );
 
-            return;
-          }
-
-          /* --------------------------------------------------
-             LOGIN / REFRESH / UPDATE
-          -------------------------------------------------- */
-
-          if (
-            event === 'SIGNED_IN' ||
-            event === 'TOKEN_REFRESHED' ||
-            event === 'USER_UPDATED'
-          ) {
-            /*
-             * Não executar operações adicionais diretamente
-             * dentro do callback do Supabase Auth.
-             *
-             * O setTimeout evita problemas de concorrência
-             * com o ciclo interno de autenticação do Supabase.
-             */
-
-            window.setTimeout(
-              async () => {
-                if (!mounted) {
-                  return;
-                }
-
-                setLoading(true);
-
-                try {
-                  await hydrateSession();
-                } catch (error) {
-                  console.error(
-                    '[AuthContext] Erro ao sincronizar sessão:',
-                    error
-                  );
-
-                  if (mounted) {
-                    setUser(null);
-                    setWorkspace(null);
-                  }
-                } finally {
-                  if (mounted) {
-                    setLoading(false);
-                  }
-                }
-              },
-              0
-            );
-          }
-        }
-      );
-
-    /* --------------------------------------------------------
-       CLEANUP
-    -------------------------------------------------------- */
-
-    return () => {
-      mounted = false;
-
-      subscription.unsubscribe();
-    };
-  }, [
-    hydrateSession,
-  ]);
+  return () => {
+    mounted = false;
+    subscription.unsubscribe();
+  };
+}, [hydrateSession]);
 
   /* ==========================================================
      LOGIN

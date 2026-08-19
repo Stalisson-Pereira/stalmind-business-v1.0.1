@@ -477,69 +477,68 @@ export const authService = {
   // CURRENT USER
   // ==========================================================
 
-  async getCurrentUser(): Promise<User | null> {
+async getCurrentUser(): Promise<User | null> {
+  try {
+    // ========================================================
+    // DEMO / SUPABASE NÃO CONFIGURADO
+    // ========================================================
 
-    try {
+    if (!isSupabaseConfigured || !supabase) {
+      const saved = localStorage.getItem(SESSION_KEY);
 
-      if (
-        !isSupabaseConfigured ||
-        !supabase
-      ) {
-        const saved =
-          localStorage.getItem(
-            SESSION_KEY
-          );
-
-        if (!saved) {
-          return MOCK_USER;
-        }
-
-        try {
-          return JSON.parse(
-            saved
-          ) as User;
-        } catch {
-          localStorage.removeItem(
-            SESSION_KEY
-          );
-
-          return MOCK_USER;
-        }
+      if (!saved) {
+        return MOCK_USER;
       }
 
-      const {
-        data,
-        error,
-      } =
-        await supabase.auth.getUser();
-
-      if (error) {
-        console.error(
-          '[authService] Erro ao obter usuário:',
-          error
-        );
-
-        return null;
+      try {
+        return JSON.parse(saved) as User;
+      } catch {
+        localStorage.removeItem(SESSION_KEY);
+        return MOCK_USER;
       }
+    }
 
-      if (!data.user) {
-        return null;
-      }
+    // ========================================================
+    // SUPABASE
+    // ========================================================
 
-      return mapUser(
-        data.user
-      );
+    const {
+      data,
+      error,
+    } = await supabase.auth.getSession();
 
-    } catch (error) {
-
+    if (error) {
       console.error(
-        '[authService] Erro inesperado ao obter usuário:',
+        '[authService] Erro ao obter sessão:',
         error
       );
 
       return null;
     }
-  },
+
+    // ========================================================
+    // SEM SESSÃO
+    // ========================================================
+
+    if (!data.session?.user) {
+      return null;
+    }
+
+    // ========================================================
+    // USUÁRIO AUTENTICADO
+    // ========================================================
+
+    return mapUser(data.session.user);
+
+  } catch (error) {
+    console.error(
+      '[authService] Erro inesperado ao obter usuário:',
+      error
+    );
+
+    return null;
+  }
+},
 
   // ==========================================================
   // WORKSPACE ATUAL
