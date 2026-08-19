@@ -1,66 +1,31 @@
 import React from 'react';
-import { Sun, Moon, Monitor } from 'lucide-react';
+import { Sun, Moon } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
-import { Theme } from '../../types';
 
-export const ThemeToggle: React.FC<{ className?: string }> = ({
-  className = '',
-}) => {
-  const { theme, setTheme, resolvedTheme } = useTheme();
-
-  const options: {
-    id: Theme;
-    label: string;
-    icon: React.FC<{ className?: string }>;
-  }[] = [
-    {
-      id: 'light',
-      label: 'Modo Claro',
-      icon: Sun,
-    },
-    {
-      id: 'dark',
-      label: 'Modo Escuro',
-      icon: Moon,
-    },
-    {
-      id: 'system',
-      label: `Modo Sistema (Automático - ${
-        resolvedTheme === 'dark' ? 'Escuro' : 'Claro'
-      })`,
-      icon: Monitor,
-    },
-  ];
+export const ThemeToggle: React.FC<{ className?: string }> = ({ className = '' }) => {
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
+  const nextTheme = isDark ? 'light' : 'dark';
+  const label = isDark ? 'Ativar modo claro' : 'Ativar modo escuro';
 
   return (
-    <div
-      className={`inline-flex items-center gap-0.5 p-0.5 sm:p-1 rounded-full bg-slate-100 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs transition-colors shrink-0 ${className}`}
-      role="group"
-      aria-label="Alternar Tema"
+    <button
+      type="button"
+      onClick={() => setTheme(nextTheme)}
+      title={label}
+      aria-label={label}
+      className={`relative inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:text-indigo-600 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-500/50 dark:hover:text-indigo-300 ${className}`}
     >
-      {options.map((option) => {
-        const Icon = option.icon;
-        const isActive = theme === option.id;
-
-        return (
-          <button
-            key={option.id}
-            type="button"
-            onClick={() => setTheme(option.id)}
-            title={option.label}
-            aria-label={option.label}
-            aria-pressed={isActive}
-            className={`p-1.5 rounded-full transition-all duration-200 select-none flex items-center justify-center ${
-              isActive
-                ? 'bg-indigo-600 text-white shadow-xs font-bold scale-105'
-                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/70 dark:hover:bg-slate-800/80'
-            }`}
-          >
-            <Icon className="w-3.5 h-3.5 shrink-0" />
-            <span className="sr-only">{option.label}</span>
-          </button>
-        );
-      })}
-    </div>
+      <Sun
+        className={`absolute h-4 w-4 transition-all duration-300 ${
+          isDark ? 'translate-y-5 rotate-90 opacity-0' : 'translate-y-0 rotate-0 opacity-100'
+        }`}
+      />
+      <Moon
+        className={`absolute h-4 w-4 transition-all duration-300 ${
+          isDark ? 'translate-y-0 rotate-0 opacity-100' : '-translate-y-5 -rotate-90 opacity-0'
+        }`}
+      />
+    </button>
   );
 };
