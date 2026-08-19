@@ -238,10 +238,12 @@ function mapUser(
 
 function mapWorkspace(
   workspace: any,
-  role?: string
+  role?: string,
+  ownerId?: string
 ): Workspace {
   return {
-    id: workspace.id,
+    id:
+      workspace.id,
 
     name:
       workspace.name || '',
@@ -250,7 +252,7 @@ function mapWorkspace(
       workspace.slug || '',
 
     ownerId:
-      workspace.owner_id || '',
+      ownerId || '',
 
     taxId:
       workspace.tax_id,
@@ -477,86 +479,76 @@ export const authService = {
   // CURRENT USER
   // ==========================================================
 
-async getCurrentUser(): Promise<User | null> {
-  try {
-    // ========================================================
-    // DEMO / SUPABASE NÃO CONFIGURADO
-    // ========================================================
+  async getCurrentUser(): Promise<User | null> {
+    try {
+      if (
+        !isSupabaseConfigured ||
+        !supabase
+      ) {
+        const saved =
+          localStorage.getItem(
+            SESSION_KEY
+          );
 
-    if (!isSupabaseConfigured || !supabase) {
-      const saved = localStorage.getItem(SESSION_KEY);
+        if (!saved) {
+          return MOCK_USER;
+        }
 
-      if (!saved) {
-        return MOCK_USER;
+        try {
+          return JSON.parse(
+            saved
+          ) as User;
+        } catch {
+          localStorage.removeItem(
+            SESSION_KEY
+          );
+
+          return MOCK_USER;
+        }
       }
 
-      try {
-        return JSON.parse(saved) as User;
-      } catch {
-        localStorage.removeItem(SESSION_KEY);
-        return MOCK_USER;
+      const {
+        data,
+        error,
+      } =
+        await supabase.auth.getUser();
+
+      if (error) {
+        console.error(
+          '[authService] Erro ao obter usuário:',
+          error
+        );
+
+        return null;
       }
-    }
 
-    // ========================================================
-    // SUPABASE
-    // ========================================================
+      if (!data.user) {
+        return null;
+      }
 
-    const {
-      data,
-      error,
-    } = await supabase.auth.getSession();
-
-    if (error) {
+      return mapUser(
+        data.user
+      );
+    } catch (error) {
       console.error(
-        '[authService] Erro ao obter sessão:',
+        '[authService] Erro inesperado ao obter usuário:',
         error
       );
 
       return null;
     }
-
-    // ========================================================
-    // SEM SESSÃO
-    // ========================================================
-
-    if (!data.session?.user) {
-      return null;
-    }
-
-    // ========================================================
-    // USUÁRIO AUTENTICADO
-    // ========================================================
-
-    return mapUser(data.session.user);
-
-  } catch (error) {
-    console.error(
-      '[authService] Erro inesperado ao obter usuário:',
-      error
-    );
-
-    return null;
-  }
-},
+  },
 
   // ==========================================================
   // WORKSPACE ATUAL
   // ==========================================================
 
   async getCurrentWorkspace(): Promise<Workspace | null> {
-
     try {
-
-      // ------------------------------------------------------
-      // SUPABASE
-      // ------------------------------------------------------
-
       if (
         isSupabaseConfigured &&
         supabase
       ) {
-
         const {
           data: {
             session,
@@ -603,9 +595,7 @@ async getCurrentUser(): Promise<User | null> {
             .limit(1)
             .maybeSingle();
 
-        if (
-          memberError
-        ) {
+        if (memberError) {
           console.error(
             '[authService] Erro ao buscar workspace_members:',
             memberError
@@ -614,13 +604,7 @@ async getCurrentUser(): Promise<User | null> {
           return null;
         }
 
-        // ----------------------------------------------------
-        // CASO NÃO TENHA MEMBRO
-        // ----------------------------------------------------
-
-        if (
-          !member
-        ) {
+        if (!member) {
           console.warn(
             '[authService] Nenhum workspace_members encontrado para:',
             user.id
@@ -629,13 +613,7 @@ async getCurrentUser(): Promise<User | null> {
           return null;
         }
 
-        // ----------------------------------------------------
-        // WORKSPACE_ID
-        // ----------------------------------------------------
-
-        if (
-          !member.workspace_id
-        ) {
+        if (!member.workspace_id) {
           console.warn(
             '[authService] workspace_id não encontrado.'
           );
@@ -644,7 +622,7 @@ async getCurrentUser(): Promise<User | null> {
         }
 
         // ----------------------------------------------------
-        // BUSCAR WORKSPACE SEPARADAMENTE
+        // BUSCAR WORKSPACE
         // ----------------------------------------------------
 
         const {
@@ -657,7 +635,6 @@ async getCurrentUser(): Promise<User | null> {
               id,
               name,
               slug,
-              owner_id,
               legal_name,
               tax_id,
               email,
@@ -686,9 +663,7 @@ async getCurrentUser(): Promise<User | null> {
             )
             .maybeSingle();
 
-        if (
-          workspaceError
-        ) {
+        if (workspaceError) {
           console.error(
             '[authService] Erro ao buscar workspace:',
             workspaceError
@@ -697,9 +672,7 @@ async getCurrentUser(): Promise<User | null> {
           return null;
         }
 
-        if (
-          !workspaceData
-        ) {
+        if (!workspaceData) {
           console.warn(
             '[authService] Workspace não encontrado:',
             member.workspace_id
@@ -708,10 +681,56 @@ async getCurrentUser(): Promise<User | null> {
           return null;
         }
 
+        // ----------------------------------------------------
+        // DETERMINAR OWNER
+        // ----------------------------------------------------
+
+        let ownerId: string | undefined;
+
+        if (member.role === 'owner') {
+          ownerId =
+            member.user_id;
+        } else {
+          const {
+            data: ownerMember,
+            error: ownerError,
+          } =
+            await supabase
+              .from('workspace_members')
+              .select(`
+                user_id
+              `)
+              .eq(
+                'workspace_id',
+                member.workspace_id
+              )
+              .eq(
+                'role',
+                'owner'
+              )
+              .limit(1)
+              .maybeSingle();
+
+          if (ownerError) {
+            console.warn(
+              '[authService] Não foi possível obter o proprietário do workspace:',
+              ownerError
+            );
+          }
+
+          ownerId =
+            ownerMember?.user_id;
+        }
+
+        // ----------------------------------------------------
+        // MAP WORKSPACE
+        // ----------------------------------------------------
+
         const workspace =
           mapWorkspace(
             workspaceData,
-            member.role
+            member.role,
+            ownerId
           );
 
         localStorage.setItem(
@@ -729,9 +748,9 @@ async getCurrentUser(): Promise<User | null> {
         return workspace;
       }
 
-      // ------------------------------------------------------
+      // ======================================================
       // LOCAL / DEMO
-      // ------------------------------------------------------
+      // ======================================================
 
       const saved =
         localStorage.getItem(
@@ -739,15 +758,11 @@ async getCurrentUser(): Promise<User | null> {
         );
 
       if (saved) {
-
         try {
-
           return JSON.parse(
             saved
           ) as Workspace;
-
         } catch {
-
           localStorage.removeItem(
             WORKSPACE_KEY
           );
@@ -755,9 +770,7 @@ async getCurrentUser(): Promise<User | null> {
       }
 
       return MOCK_WORKSPACE;
-
     } catch (error) {
-
       console.error(
         '[authService] Erro inesperado ao carregar workspace:',
         error
@@ -778,12 +791,10 @@ async getCurrentUser(): Promise<User | null> {
     user: User;
     workspace: Workspace;
   }> {
-
     if (
       isSupabaseConfigured &&
       supabase
     ) {
-
       const {
         data,
         error,
@@ -816,7 +827,6 @@ async getCurrentUser(): Promise<User | null> {
         await this.getCurrentWorkspace();
 
       if (!workspace) {
-
         await supabase.auth.signOut();
 
         throw new Error(
@@ -844,9 +854,9 @@ async getCurrentUser(): Promise<User | null> {
       };
     }
 
-    // --------------------------------------------------------
+    // ========================================================
     // DEMO
-    // --------------------------------------------------------
+    // ========================================================
 
     const user: User = {
       ...MOCK_USER,
@@ -896,12 +906,10 @@ async getCurrentUser(): Promise<User | null> {
     workspace: Workspace | null;
     emailConfirmationRequired?: boolean;
   }> {
-
     if (
       isSupabaseConfigured &&
       supabase
     ) {
-
       const cleanEmail =
         email
           .trim()
@@ -912,7 +920,8 @@ async getCurrentUser(): Promise<User | null> {
         error,
       } =
         await supabase.auth.signUp({
-          email: cleanEmail,
+          email:
+            cleanEmail,
 
           password,
 
@@ -949,7 +958,6 @@ async getCurrentUser(): Promise<User | null> {
       // ------------------------------------------------------
 
       if (!data.session) {
-
         return {
           user,
           workspace: null,
@@ -987,14 +995,18 @@ async getCurrentUser(): Promise<User | null> {
       };
     }
 
-    // --------------------------------------------------------
+    // ========================================================
     // DEMO
-    // --------------------------------------------------------
+    // ========================================================
 
     const user: User = {
-      id: crypto.randomUUID(),
+      id:
+        crypto.randomUUID(),
+
       email,
+
       name,
+
       createdAt:
         new Date().toISOString(),
     };
@@ -1059,12 +1071,10 @@ async getCurrentUser(): Promise<User | null> {
   // ==========================================================
 
   async loginWithGoogle(): Promise<void> {
-
     if (
       isSupabaseConfigured &&
       supabase
     ) {
-
       const {
         error,
       } =
@@ -1110,12 +1120,10 @@ async getCurrentUser(): Promise<User | null> {
   // ==========================================================
 
   async logout(): Promise<void> {
-
     if (
       isSupabaseConfigured &&
       supabase
     ) {
-
       const {
         error,
       } =
@@ -1147,7 +1155,6 @@ async getCurrentUser(): Promise<User | null> {
       | 'pro'
       | 'enterprise'
   ): Promise<boolean> {
-
     if (
       !workspaceId ||
       !isValidUUID(workspaceId)
@@ -1240,7 +1247,6 @@ async getCurrentUser(): Promise<User | null> {
       );
 
     if (error) {
-
       console.error(
         '[authService] Erro start_workspace_trial:',
         error
@@ -1297,7 +1303,6 @@ async getCurrentUser(): Promise<User | null> {
       | 'pro'
       | 'enterprise'
   ): Promise<Workspace> {
-
     const plan =
       validateTrialPlan(
         selectedPlan
@@ -1317,7 +1322,6 @@ async getCurrentUser(): Promise<User | null> {
         PLANS.FREE &&
       workspace.trialUsed === false
     ) {
-
       const started =
         await this.startTrial(
           workspace.id,
@@ -1360,7 +1364,6 @@ async getCurrentUser(): Promise<User | null> {
   // ==========================================================
 
   async syncTrialStatus(): Promise<Workspace | null> {
-
     const workspace =
       await this.getCurrentWorkspace();
 
@@ -1412,7 +1415,6 @@ async getCurrentUser(): Promise<User | null> {
       );
 
     if (error) {
-
       console.error(
         '[authService] Erro expire_workspace_trial:',
         error
@@ -1449,7 +1451,6 @@ async getCurrentUser(): Promise<User | null> {
   async resetPassword(
     email: string
   ): Promise<void> {
-
     if (
       !isSupabaseConfigured ||
       !supabase
@@ -1496,7 +1497,6 @@ async getCurrentUser(): Promise<User | null> {
   async setPassword(
     password: string
   ): Promise<void> {
-
     if (
       !isSupabaseConfigured ||
       !supabase
@@ -1506,7 +1506,10 @@ async getCurrentUser(): Promise<User | null> {
       );
     }
 
-    if (!password || password.length < 6) {
+    if (
+      !password ||
+      password.length < 6
+    ) {
       throw new Error(
         'A senha deve ter pelo menos 6 caracteres.'
       );
@@ -1534,7 +1537,6 @@ async getCurrentUser(): Promise<User | null> {
   async updateWorkspace(
     data: Partial<Workspace>
   ): Promise<Workspace> {
-
     const currentWorkspace =
       await this.getCurrentWorkspace();
 
@@ -1614,7 +1616,6 @@ async getCurrentUser(): Promise<User | null> {
       isSupabaseConfigured &&
       supabase
     ) {
-
       const {
         data: updated,
         error,
@@ -1689,7 +1690,8 @@ async getCurrentUser(): Promise<User | null> {
       const result =
         mapWorkspace(
           updated,
-          currentWorkspace.role
+          currentWorkspace.role,
+          currentWorkspace.ownerId
         );
 
       localStorage.setItem(
