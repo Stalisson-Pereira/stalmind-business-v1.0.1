@@ -69,6 +69,18 @@ function generateId(): string {
 // NORMALIZE
 // ============================================================
 
+/**
+ * Converte o registro do Supabase para o formato usado
+ * pela aplicação.
+ *
+ * IMPORTANTE:
+ * O banco NÃO possui coluna "status".
+ *
+ * O status da aplicação é derivado de "is_active":
+ *
+ * true  -> active
+ * false -> inactive
+ */
 function normalizeCustomer(
   customer: Partial<Customer> & Record<string, unknown>
 ): Customer {
@@ -77,10 +89,21 @@ function normalizeCustomer(
     (customer.company as string | null | undefined) ??
     '';
 
+  const isActive =
+    customer.is_active !== false;
+
   return {
-    id: String(customer.id ?? generateId()),
+    id: String(
+      customer.id ?? generateId()
+    ),
 
     workspace_id: String(
+      customer.workspace_id ??
+        customer.workspaceId ??
+        ''
+    ),
+
+    workspaceId: String(
       customer.workspace_id ??
         customer.workspaceId ??
         ''
@@ -138,8 +161,20 @@ function normalizeCustomer(
     notes:
       String(customer.notes ?? ''),
 
+    // ========================================================
+    // STATUS DA APLICAÇÃO
+    // ========================================================
+    //
+    // Não vem do banco.
+    // É calculado a partir de is_active.
+    //
+    status:
+      isActive
+        ? 'active'
+        : 'inactive',
+
     is_active:
-      customer.is_active !== false,
+      isActive,
 
     created_by:
       customer.created_by
@@ -156,13 +191,6 @@ function normalizeCustomer(
       customer.updated_at
         ? String(customer.updated_at)
         : null,
-
-    workspaceId:
-      String(
-        customer.workspace_id ??
-          customer.workspaceId ??
-          ''
-      ),
   };
 }
 
@@ -180,7 +208,10 @@ export const customerService = {
     workspaceId?: string
   ): Promise<Customer[]> {
 
-    // LOCAL
+    // --------------------------------------------------------
+    // LOCAL STORAGE
+    // --------------------------------------------------------
+
     if (
       !isSupabaseConfigured ||
       !supabase
@@ -199,7 +230,10 @@ export const customerService = {
       );
     }
 
+    // --------------------------------------------------------
     // SUPABASE
+    // --------------------------------------------------------
+
     if (!workspaceId) {
       throw new Error(
         'Workspace não encontrado.'
@@ -253,7 +287,10 @@ export const customerService = {
       return null;
     }
 
-    // LOCAL
+    // --------------------------------------------------------
+    // LOCAL STORAGE
+    // --------------------------------------------------------
+
     if (
       !isSupabaseConfigured ||
       !supabase
@@ -275,7 +312,10 @@ export const customerService = {
       return customer ?? null;
     }
 
+    // --------------------------------------------------------
     // SUPABASE
+    // --------------------------------------------------------
+
     let query =
       supabase
         .from('customers')
@@ -339,6 +379,16 @@ export const customerService = {
       customer.company ??
       '';
 
+    // ========================================================
+    // PAYLOAD SUPABASE
+    // ========================================================
+    //
+    // IMPORTANTE:
+    // NÃO existe "status" aqui.
+    //
+    // O status é controlado por "is_active".
+    // ========================================================
+
     const payload = {
       workspace_id:
         workspaceId,
@@ -391,13 +441,17 @@ export const customerService = {
         customer.notes ??
         null,
 
+      // ======================================================
+      // STATUS REAL DO BANCO
+      // ======================================================
+
       is_active:
         customer.is_active ??
-        true,
-
-      status:
-        customer.status ??
-        'active',
+        (
+          customer.status === 'inactive'
+            ? false
+            : true
+        ),
 
       created_by:
         userId ??
@@ -412,7 +466,10 @@ export const customerService = {
         now,
     };
 
-    // LOCAL
+    // --------------------------------------------------------
+    // LOCAL STORAGE
+    // --------------------------------------------------------
+
     if (
       !isSupabaseConfigured ||
       !supabase
@@ -437,7 +494,10 @@ export const customerService = {
       return localCustomer;
     }
 
+    // --------------------------------------------------------
     // SUPABASE
+    // --------------------------------------------------------
+
     const {
       data,
       error,
@@ -463,8 +523,6 @@ export const customerService = {
 
   // ==========================================================
   // ADD CUSTOMER
-  //
-  // Compatibilidade com páginas antigas.
   // ==========================================================
 
   async addCustomer(
@@ -507,7 +565,10 @@ export const customerService = {
       );
     }
 
-    // LOCAL
+    // --------------------------------------------------------
+    // LOCAL STORAGE
+    // --------------------------------------------------------
+
     if (
       !isSupabaseConfigured ||
       !supabase
@@ -519,7 +580,7 @@ export const customerService = {
         customers.findIndex(
           item =>
             item.id ===
-            customerId &&
+              customerId &&
             (
               !workspaceId ||
               item.workspace_id ===
@@ -537,11 +598,21 @@ export const customerService = {
         normalizeCustomer({
           ...customers[index],
           ...customer,
-          id: customerId,
+
+          id:
+            customerId,
+
           workspace_id:
             workspaceId ??
             customers[index]
               .workspace_id,
+
+          // status é convertido para is_active
+          is_active:
+            customer.status !== undefined
+              ? customer.status !== 'inactive'
+              : customer.is_active,
+
           updated_at:
             new Date().toISOString(),
         });
@@ -556,7 +627,10 @@ export const customerService = {
       return updated;
     }
 
+    // --------------------------------------------------------
     // BUSCAR CLIENTE
+    // --------------------------------------------------------
+
     const {
       data: existingCustomer,
       error: findError,
@@ -616,6 +690,10 @@ export const customerService = {
         'O cliente não pertence ao workspace informado.'
       );
     }
+
+    // ========================================================
+    // PAYLOAD
+    // ========================================================
 
     const payload: Record<
       string,
@@ -734,7 +812,30 @@ export const customerService = {
         null;
     }
 
+    // ========================================================
+    // STATUS
+    // ========================================================
+    //
+    // NÃO usamos:
+    //
+    // payload.status
+    //
+    // Porque essa coluna não existe no banco.
+    //
+    // Em vez disso:
+    //
+    // active   -> is_active = true
+    // inactive -> is_active = false
+    // ========================================================
+
     if (
+      customer.status !==
+      undefined
+    ) {
+      payload.is_active =
+        customer.status !==
+        'inactive';
+    } else if (
       customer.is_active !==
       undefined
     ) {
@@ -743,15 +844,19 @@ export const customerService = {
     }
 
     if (
-      customer.status !==
+      customer.is_active !==
       undefined
     ) {
-      payload.status =
-        customer.status;
+      payload.is_active =
+        customer.is_active;
     }
 
     payload.updated_at =
       new Date().toISOString();
+
+    // --------------------------------------------------------
+    // UPDATE SUPABASE
+    // --------------------------------------------------------
 
     const {
       data,
@@ -805,7 +910,10 @@ export const customerService = {
       );
     }
 
-    // LOCAL
+    // --------------------------------------------------------
+    // LOCAL STORAGE
+    // --------------------------------------------------------
+
     if (
       !isSupabaseConfigured ||
       !supabase
@@ -834,7 +942,10 @@ export const customerService = {
       return;
     }
 
+    // --------------------------------------------------------
     // SUPABASE
+    // --------------------------------------------------------
+
     let query =
       supabase
         .from('customers')
@@ -878,7 +989,6 @@ export const customerService = {
       customerId,
       {
         is_active: false,
-        status: 'inactive',
       },
       workspaceId
     );
@@ -897,7 +1007,6 @@ export const customerService = {
       customerId,
       {
         is_active: true,
-        status: 'active',
       },
       workspaceId
     );
