@@ -31,71 +31,57 @@ import {
 
 export interface PlanTier {
     id: 'Starter' | 'Pro' | 'Enterprise';
-
     name: string;
-
     tagline: string;
-
     monthlyPrice: number;
-
     annualPriceMonthly: number;
-
     popular?: boolean;
-
     features: string[];
-
     cta: string;
-
     color: string;
 }
 
-type BillingCycle =
-    | 'monthly'
-    | 'annually';
+type BillingCycle = 'monthly' | 'annually';
+
+type DatabasePlan = 'free' | 'pro' | 'enterprise';
 
 interface TrialResult {
     success: boolean;
-
     workspace_id: string;
-
-    plan: string;
-
+    plan: DatabasePlan;
     trial_used: boolean;
-
     trial_started_at: string;
-
     trial_ends_at: string;
-
     days: number;
 }
 
 interface WorkspaceTrialState {
     trialUsed?: boolean;
-
     trial_used?: boolean;
-
     trialStartedAt?: string | null;
-
     trial_started_at?: string | null;
-
     trialEndsAt?: string | null;
-
     trial_ends_at?: string | null;
 }
 
-/**
- * Estado local usado depois da ativação.
- *
- * Isso evita depender imediatamente de um refresh
- * do workspace para atualizar a interface.
- */
 interface LocalTrialState {
     used: boolean;
-
     startedAt: string | null;
-
     endsAt: string | null;
 }
+
+/* ============================================================
+   MAPA DE PLANOS
+============================================================ */
+
+const PLAN_DATABASE_MAP: Record<
+    PlanTier['id'],
+    DatabasePlan
+> = {
+    Starter: 'free',
+    Pro: 'pro',
+    Enterprise: 'enterprise',
+};
 
 /* ============================================================
    PLANOS
@@ -104,16 +90,11 @@ interface LocalTrialState {
 const PLAN_TIERS: PlanTier[] = [
     {
         id: 'Starter',
-
         name: 'Starter / Gratuito',
-
         tagline:
             'Ideal para freelancers e negócios em fase inicial.',
-
         monthlyPrice: 0,
-
         annualPriceMonthly: 0,
-
         features: [
             'Até 10 clientes cadastrados',
             'Assistente IA (100 mensagens/mês)',
@@ -122,26 +103,18 @@ const PLAN_TIERS: PlanTier[] = [
             'Notificações por E-mail',
             'Suporte via ticket',
         ],
-
         cta: 'Começar Grátis',
-
         color: 'slate',
     },
 
     {
         id: 'Pro',
-
         name: 'Pro / Profissional',
-
         tagline:
             'Para consultores, agências e PMEs que buscam escala com IA.',
-
         monthlyPrice: 19.99,
-
         annualPriceMonthly: 9.99,
-
         popular: true,
-
         features: [
             'Clientes e orçamentos ilimitados',
             'Assistente IA Ilimitado (Gemini 2.5/3 Pro)',
@@ -151,24 +124,17 @@ const PLAN_TIERS: PlanTier[] = [
             'Relatórios e Análise Financeira',
             'Suporte Prioritário 24/7',
         ],
-
         cta: 'Ativar Plano Pro',
-
         color: 'indigo',
     },
 
     {
         id: 'Enterprise',
-
         name: 'Enterprise / Negócios',
-
         tagline:
             'Para equipas e empresas com altas demandas de automatização.',
-
         monthlyPrice: 69.99,
-
         annualPriceMonthly: 49.99,
-
         features: [
             'Tudo incluído no Plano Pro',
             'Múltiplas sub-contas e gestão de permissões',
@@ -178,9 +144,7 @@ const PLAN_TIERS: PlanTier[] = [
             'Gerente de Conta Dedicado',
             'SLA de suporte garantido em 1h',
         ],
-
         cta: 'Ativar Enterprise',
-
         color: 'violet',
     },
 ];
@@ -216,12 +180,6 @@ export const PlansPage: React.FC = () => {
     const [errorMessage, setErrorMessage] =
         useState<string | null>(null);
 
-    /**
-     * Estado local do trial.
-     *
-     * Usado para atualizar a tela imediatamente
-     * após a RPC retornar sucesso.
-     */
     const [localTrial, setLocalTrial] =
         useState<LocalTrialState>({
             used: false,
@@ -237,24 +195,20 @@ export const PlansPage: React.FC = () => {
         (workspace ?? {}) as WorkspaceTrialState;
 
     const databaseTrialUsed =
-        workspaceTrial.trial_used ??
         workspaceTrial.trialUsed ??
+        workspaceTrial.trial_used ??
         false;
 
     const databaseTrialStartedAt =
-        workspaceTrial.trial_started_at ??
         workspaceTrial.trialStartedAt ??
+        workspaceTrial.trial_started_at ??
         null;
 
     const databaseTrialEndsAt =
-        workspaceTrial.trial_ends_at ??
         workspaceTrial.trialEndsAt ??
+        workspaceTrial.trial_ends_at ??
         null;
 
-    /**
-     * Quando o workspace mudar, sincronizamos
-     * novamente o estado local.
-     */
     useEffect(() => {
         setLocalTrial({
             used: databaseTrialUsed,
@@ -286,7 +240,7 @@ export const PlansPage: React.FC = () => {
     const trialIsActive =
         !!trialEndsAt &&
         new Date(trialEndsAt).getTime() >
-        Date.now();
+            Date.now();
 
     /* ============================================================
        PLANO ATUAL
@@ -294,28 +248,21 @@ export const PlansPage: React.FC = () => {
 
     const currentPlanId =
         useMemo<PlanTier['id']>(() => {
-            const value = String(
-                (workspace as any)?.plan ??
-                'Starter'
-            )
-                .trim()
-                .toLowerCase();
+            const value =
+                workspace?.plan ?? 'free';
 
-            if (value === 'pro') {
-                return 'Pro';
+            switch (value) {
+                case 'pro':
+                    return 'Pro';
+
+                case 'enterprise':
+                    return 'Enterprise';
+
+                case 'free':
+                default:
+                    return 'Starter';
             }
-
-            if (
-                value === 'enterprise' ||
-                value === 'business'
-            ) {
-                return 'Enterprise';
-            }
-
-            return 'Starter';
-        }, [
-            (workspace as any)?.plan,
-        ]);
+        }, [workspace?.plan]);
 
     /* ============================================================
        DIAS RESTANTES
@@ -344,16 +291,14 @@ export const PlansPage: React.FC = () => {
 
             return Math.ceil(
                 diff /
-                (
-                    1000 *
-                    60 *
-                    60 *
-                    24
-                )
+                    (
+                        1000 *
+                        60 *
+                        60 *
+                        24
+                    )
             );
-        }, [
-            trialEndsAt,
-        ]);
+        }, [trialEndsAt]);
 
     /* ============================================================
        PREÇO
@@ -417,13 +362,13 @@ export const PlansPage: React.FC = () => {
 
             localStorage.setItem(
                 'stalmind_app_notifications',
-
                 JSON.stringify(
                     updatedNotifications
                 )
             );
-
-        } catch (notificationError) {
+        } catch (
+            notificationError
+        ) {
             console.warn(
                 '[PlansPage] Não foi possível criar a notificação:',
                 notificationError
@@ -448,7 +393,6 @@ export const PlansPage: React.FC = () => {
 
         if (plan.id === 'Starter') {
             await handleStarterPlan();
-
             return;
         }
 
@@ -483,13 +427,9 @@ export const PlansPage: React.FC = () => {
         }
 
         setSelectedPlan(plan);
-
         setErrorMessage(null);
-
         setTrialSuccess(false);
-
         setTrialResult(null);
-
         setIsTrialModalOpen(true);
     };
 
@@ -497,113 +437,174 @@ export const PlansPage: React.FC = () => {
        CONFIRMAR TRIAL
     ============================================================ */
 
-    const confirmStartTrial = async () => {
-        if (!selectedPlan || !workspace?.id) {
-            setErrorMessage(
-                'Não foi possível identificar o workspace atual.'
-            );
-            return;
-        }
-
-        if (
-            selectedPlan.id !== 'Pro' &&
-            selectedPlan.id !== 'Enterprise'
-        ) {
-            setErrorMessage('Plano inválido.');
-            return;
-        }
-
-        setIsProcessing(true);
-        setErrorMessage(null);
-
-        try {
-            const selectedPlanForDatabase =
-                selectedPlan.id.toLowerCase();
-
-            const {
-                data,
-                error,
-            } = await supabase.rpc(
-                'start_workspace_trial',
-                {
-                    target_workspace: workspace.id,
-                    selected_plan: selectedPlanForDatabase,
-                }
-            );
-
-            if (error) {
-                console.error(
-                    '[PlansPage] Erro ao iniciar trial:',
-                    error
+    const confirmStartTrial =
+        async () => {
+            if (
+                !selectedPlan ||
+                !workspace?.id
+            ) {
+                setErrorMessage(
+                    'Não foi possível identificar o workspace atual.'
                 );
-                throw error;
+
+                return;
             }
-
-            console.log(
-                '[PlansPage] Trial iniciado:',
-                data
-            );
-
-            if (!data) {
-                throw new Error(
-                    'O Supabase não retornou os dados do período de teste.'
-                );
-            }
-
-            const result = data as TrialResult;
-
-            if (result.success !== true) {
-                throw new Error(
-                    'Não foi possível iniciar o período de teste.'
-                );
-            }
-
-            await updateWorkspace({
-                plan: selectedPlan.id,
-                planBilling: billingCycle,
-            });
-
-            createTrialNotification(
-                selectedPlan,
-                result
-            );
-
-            setTrialResult(result);
-            setTrialSuccess(true);
-
-        } catch (error: any) {
-            console.error(
-                '[PlansPage] Erro completo:',
-                error
-            );
-
-            let message =
-                'Não foi possível iniciar o período de teste.';
 
             if (
-                error?.code === 'PGRST202' ||
-                error?.status === 404
+                selectedPlan.id !== 'Pro' &&
+                selectedPlan.id !== 'Enterprise'
             ) {
-                message =
-                    'A função start_workspace_trial não foi encontrada ou sua assinatura está incorreta no Supabase.';
-            } else if (
-                error?.code === '42501'
-            ) {
-                message =
-                    'Você não possui permissão para iniciar o período de teste neste workspace.';
-            } else if (
-                typeof error?.message === 'string' &&
-                error.message.trim()
-            ) {
-                message = error.message;
+                setErrorMessage(
+                    'Plano inválido.'
+                );
+
+                return;
             }
 
-            setErrorMessage(message);
+            setIsProcessing(true);
+            setErrorMessage(null);
 
-        } finally {
-            setIsProcessing(false);
-        }
-    };
+            try {
+                const selectedPlanForDatabase =
+                    PLAN_DATABASE_MAP[
+                        selectedPlan.id
+                    ];
+
+                const {
+                    data,
+                    error,
+                } = await supabase.rpc(
+                    'start_workspace_trial',
+                    {
+                        target_workspace:
+                            workspace.id,
+
+                        selected_plan:
+                            selectedPlanForDatabase,
+                    }
+                );
+
+                if (error) {
+                    console.error(
+                        '[PlansPage] Erro ao iniciar trial:',
+                        error
+                    );
+
+                    throw error;
+                }
+
+                console.log(
+                    '[PlansPage] Trial iniciado:',
+                    data
+                );
+
+                if (!data) {
+                    throw new Error(
+                        'O Supabase não retornou os dados do período de teste.'
+                    );
+                }
+
+                const result =
+                    data as TrialResult;
+
+                if (
+                    result.success !== true
+                ) {
+                    throw new Error(
+                        'Não foi possível iniciar o período de teste.'
+                    );
+                }
+
+                await updateWorkspace({
+                    plan:
+                        selectedPlanForDatabase,
+
+                    planBilling:
+                        billingCycle,
+                });
+
+                createTrialNotification(
+                    selectedPlan
+                );
+
+                setLocalTrial({
+                    used:
+                        result.trial_used ??
+                        true,
+
+                    startedAt:
+                        result.trial_started_at ??
+                        null,
+
+                    endsAt:
+                        result.trial_ends_at ??
+                        null,
+                });
+
+                setTrialResult(
+                    result
+                );
+
+                setTrialSuccess(
+                    true
+                );
+            } catch (
+                error: unknown
+            ) {
+                console.error(
+                    '[PlansPage] Erro completo:',
+                    error
+                );
+
+                let message =
+                    'Não foi possível iniciar o período de teste.';
+
+                if (
+                    typeof error ===
+                        'object' &&
+                    error !== null
+                ) {
+                    const errorData =
+                        error as {
+                            code?: string;
+                            status?: number;
+                            message?: string;
+                        };
+
+                    if (
+                        errorData.code ===
+                            'PGRST202' ||
+                        errorData.status ===
+                            404
+                    ) {
+                        message =
+                            'A função start_workspace_trial não foi encontrada ou sua assinatura está incorreta no Supabase.';
+                    } else if (
+                        errorData.code ===
+                        '42501'
+                    ) {
+                        message =
+                            'Você não possui permissão para iniciar o período de teste neste workspace.';
+                    } else if (
+                        typeof errorData.message ===
+                            'string' &&
+                        errorData.message.trim()
+                    ) {
+                        message =
+                            errorData.message;
+                    }
+                }
+
+                setErrorMessage(
+                    message
+                );
+            } finally {
+                setIsProcessing(
+                    false
+                );
+            }
+        };
+
     /* ============================================================
        PLANO STARTER
     ============================================================ */
@@ -625,26 +626,17 @@ export const PlansPage: React.FC = () => {
                 return;
             }
 
-            setIsProcessing(
-                true
-            );
-
-            setErrorMessage(
-                null
-            );
+            setIsProcessing(true);
+            setErrorMessage(null);
 
             try {
                 await updateWorkspace({
-                    plan: 'Starter',
+                    plan:
+                        PLAN_DATABASE_MAP.Starter,
 
                     planBilling:
                         'monthly',
                 });
-
-                /**
-                 * Limpa trial local quando volta
-                 * para o Starter.
-                 */
 
                 setLocalTrial({
                     used:
@@ -700,17 +692,20 @@ export const PlansPage: React.FC = () => {
                             updatedNotifications
                         )
                     );
-
                 } catch {
                     // Notificação não deve bloquear a alteração.
                 }
+            } catch (
+                error: unknown
+            ) {
+                const message =
+                    error instanceof Error
+                        ? error.message
+                        : 'Não foi possível alterar para o Plano Starter.';
 
-            } catch (error: any) {
                 setErrorMessage(
-                    error?.message ||
-                    'Não foi possível alterar para o Plano Starter.'
+                    message
                 );
-
             } finally {
                 setIsProcessing(
                     false
@@ -756,9 +751,9 @@ export const PlansPage: React.FC = () => {
     const formatTrialDate =
         (
             value:
-                string |
-                null |
-                undefined
+                | string
+                | null
+                | undefined
         ) => {
             if (!value) {
                 return '—';
@@ -794,10 +789,6 @@ export const PlansPage: React.FC = () => {
     return (
         <div className="space-y-8 pb-12 max-w-7xl mx-auto">
 
-            {/* ====================================================
-                CABEÇALHO
-            ==================================================== */}
-
             <div className="text-center space-y-4 max-w-3xl mx-auto pt-4">
 
                 <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 text-xs font-semibold shadow-xs">
@@ -830,8 +821,6 @@ export const PlansPage: React.FC = () => {
 
                 </p>
 
-                {/* PLANO ATUAL */}
-
                 <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300">
 
                     <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
@@ -846,8 +835,6 @@ export const PlansPage: React.FC = () => {
 
                 </div>
 
-                {/* TRIAL */}
-
                 {trialIsActive && (
                     <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
 
@@ -861,16 +848,13 @@ export const PlansPage: React.FC = () => {
 
                                 {trialDaysRemaining === 1
                                     ? 'dia'
-                                    : 'dias'}
-
-                            </strong>{' '}
-                            restantes
+                                    : 'dias'}{' '}
+                                restantes
+                            </strong>
                         </span>
 
                     </div>
                 )}
-
-                {/* CICLO */}
 
                 <div className="pt-4 flex items-center justify-center gap-3">
 
@@ -881,10 +865,12 @@ export const PlansPage: React.FC = () => {
                                 'monthly'
                             )
                         }
-                        className={`text-xs sm:text-sm font-semibold transition-colors ${billingCycle === 'monthly'
-                            ? 'text-slate-900 dark:text-white'
-                            : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
-                            }`}
+                        className={`text-xs sm:text-sm font-semibold transition-colors ${
+                            billingCycle ===
+                            'monthly'
+                                ? 'text-slate-900 dark:text-white'
+                                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                        }`}
                     >
                         Faturação Mensal
                     </button>
@@ -900,17 +886,20 @@ export const PlansPage: React.FC = () => {
                             )
                         }
                         aria-label="Alternar ciclo de faturação"
-                        className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${billingCycle === 'annually'
-                            ? 'bg-indigo-600'
-                            : 'bg-slate-300 dark:bg-slate-700'
-                            }`}
+                        className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
+                            billingCycle ===
+                            'annually'
+                                ? 'bg-indigo-600'
+                                : 'bg-slate-300 dark:bg-slate-700'
+                        }`}
                     >
                         <span
-                            className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg transition duration-200 ${billingCycle ===
+                            className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg transition duration-200 ${
+                                billingCycle ===
                                 'annually'
-                                ? 'translate-x-7'
-                                : 'translate-x-0'
-                                }`}
+                                    ? 'translate-x-7'
+                                    : 'translate-x-0'
+                            }`}
                         />
                     </button>
 
@@ -921,11 +910,12 @@ export const PlansPage: React.FC = () => {
                                 'annually'
                             )
                         }
-                        className={`flex items-center gap-1.5 cursor-pointer text-xs sm:text-sm font-semibold ${billingCycle ===
+                        className={`flex items-center gap-1.5 cursor-pointer text-xs sm:text-sm font-semibold ${
+                            billingCycle ===
                             'annually'
-                            ? 'text-slate-900 dark:text-white'
-                            : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
-                            }`}
+                                ? 'text-slate-900 dark:text-white'
+                                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                        }`}
                     >
                         <span>
                             Faturação Anual
@@ -939,10 +929,6 @@ export const PlansPage: React.FC = () => {
                 </div>
 
             </div>
-
-            {/* ====================================================
-                CARDS
-            ==================================================== */}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
 
@@ -981,10 +967,11 @@ export const PlansPage: React.FC = () => {
                                 key={
                                     plan.id
                                 }
-                                className={`relative rounded-3xl p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 ${isPopular
-                                    ? 'bg-gradient-to-b from-indigo-900/10 via-slate-900/90 to-slate-900 border-2 border-indigo-500 shadow-2xl shadow-indigo-500/10 dark:from-indigo-950/40 dark:to-slate-900'
-                                    : 'bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-lg'
-                                    }`}
+                                className={`relative rounded-3xl p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 ${
+                                    isPopular
+                                        ? 'bg-gradient-to-b from-indigo-900/10 via-slate-900/90 to-slate-900 border-2 border-indigo-500 shadow-2xl shadow-indigo-500/10 dark:from-indigo-950/40 dark:to-slate-900'
+                                        : 'bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-lg'
+                                }`}
                             >
 
                                 {isPopular && (
@@ -1029,17 +1016,17 @@ export const PlansPage: React.FC = () => {
 
                                             {plan.monthlyPrice >
                                                 0 && (
-                                                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                                                        /mês
-                                                    </span>
-                                                )}
+                                                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                                                    /mês
+                                                </span>
+                                            )}
 
                                         </div>
 
                                         {billingCycle ===
                                             'annually' &&
                                             plan.monthlyPrice >
-                                            0 && (
+                                                0 && (
                                                 <p className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1">
                                                     Faturado anualmente (€{(
                                                         plan.annualPriceMonthly *
@@ -1111,12 +1098,13 @@ export const PlansPage: React.FC = () => {
                                         disabled={
                                             disabled
                                         }
-                                        className={`w-full py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 ${disabled
-                                            ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
-                                            : isPopular
-                                                ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-600/30 cursor-pointer'
-                                                : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white cursor-pointer'
-                                            }`}
+                                        className={`w-full py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
+                                            disabled
+                                                ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                                                : isPopular
+                                                    ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-600/30 cursor-pointer'
+                                                    : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white cursor-pointer'
+                                        }`}
                                     >
 
                                         {isCurrent ? (
@@ -1169,10 +1157,6 @@ export const PlansPage: React.FC = () => {
 
             </div>
 
-            {/* ====================================================
-                BANNER
-            ==================================================== */}
-
             <div className="rounded-3xl bg-slate-900 text-white p-6 sm:p-8 border border-slate-800 shadow-xl">
 
                 <div className="flex flex-col md:flex-row items-center justify-between gap-6">
@@ -1212,10 +1196,6 @@ export const PlansPage: React.FC = () => {
                 </div>
 
             </div>
-
-            {/* ====================================================
-                FAQ
-            ==================================================== */}
 
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 space-y-6">
 
@@ -1283,10 +1263,6 @@ export const PlansPage: React.FC = () => {
 
             </div>
 
-            {/* ====================================================
-                MODAL
-            ==================================================== */}
-
             <Modal
                 isOpen={
                     isTrialModalOpen
@@ -1300,8 +1276,6 @@ export const PlansPage: React.FC = () => {
                         : `Ativar ${selectedPlan?.name ?? 'Plano'}`
                 }
             >
-
-                {/* ERRO */}
 
                 {errorMessage &&
                     !trialSuccess && (
@@ -1321,8 +1295,6 @@ export const PlansPage: React.FC = () => {
 
                         </div>
                     )}
-
-                {/* SUCESSO */}
 
                 {trialSuccess ? (
 
@@ -1450,8 +1422,6 @@ export const PlansPage: React.FC = () => {
 
                     <div className="space-y-5">
 
-                        {/* PLANO */}
-
                         <div className="p-5 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/60">
 
                             <div className="flex items-start gap-3">
@@ -1485,8 +1455,6 @@ export const PlansPage: React.FC = () => {
                             </div>
 
                         </div>
-
-                        {/* INFORMAÇÕES */}
 
                         <div className="space-y-3">
 
@@ -1546,8 +1514,6 @@ export const PlansPage: React.FC = () => {
 
                         </div>
 
-                        {/* VALOR */}
-
                         <div className="p-4 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
 
                             <div className="flex justify-between items-center">
@@ -1575,7 +1541,7 @@ export const PlansPage: React.FC = () => {
                                 'annually' &&
                                 selectedPlan &&
                                 selectedPlan.monthlyPrice >
-                                0 && (
+                                    0 && (
                                     <p className="text-[10px] text-indigo-500 mt-1 text-right">
 
                                         Ciclo anual: €{(
@@ -1588,8 +1554,6 @@ export const PlansPage: React.FC = () => {
                                 )}
 
                         </div>
-
-                        {/* BOTÕES */}
 
                         <div className="flex flex-col sm:flex-row gap-3">
 

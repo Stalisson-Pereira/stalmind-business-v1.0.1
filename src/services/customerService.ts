@@ -1,4 +1,5 @@
 import { Customer } from '../types';
+
 import {
   supabase,
   isSupabaseConfigured,
@@ -6,9 +7,9 @@ import {
 
 const STORAGE_KEY = 'stalmind_v2_customers';
 
-// ==========================================================
+// ============================================================
 // HELPERS
-// ==========================================================
+// ============================================================
 
 function getLocalCustomers(): Customer[] {
   try {
@@ -18,9 +19,13 @@ function getLocalCustomers(): Customer[] {
       return [];
     }
 
-    const parsed = JSON.parse(saved);
+    const parsed: unknown = JSON.parse(saved);
 
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.map(normalizeCustomer);
   } catch (error) {
     console.error(
       '[customerService] Erro ao ler clientes locais:',
@@ -47,130 +52,161 @@ function saveLocalCustomers(
   }
 }
 
+function generateId(): string {
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.randomUUID === 'function'
+  ) {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
+}
+
+// ============================================================
+// NORMALIZE
+// ============================================================
+
 function normalizeCustomer(
-  customer: any
+  customer: Partial<Customer> & Record<string, unknown>
 ): Customer {
+  const companyName =
+    (customer.company_name as string | null | undefined) ??
+    (customer.company as string | null | undefined) ??
+    '';
+
   return {
-    ...customer,
+    id: String(customer.id ?? generateId()),
 
-    id: customer?.id,
+    workspace_id: String(
+      customer.workspace_id ??
+        customer.workspaceId ??
+        ''
+    ),
 
-    workspace_id:
-      customer?.workspace_id ?? undefined,
+    type:
+      customer.type === 'company'
+        ? 'company'
+        : 'individual',
 
     name:
-      customer?.name ?? '',
-
-    company:
-      customer?.company ??
-      customer?.company_name ??
-      '',
+      String(customer.name ?? ''),
 
     company_name:
-      customer?.company_name ??
-      customer?.company ??
-      '',
+      companyName,
 
-    tax_id:
-      customer?.tax_id ?? '',
+    company:
+      companyName,
 
     email:
-      customer?.email ?? '',
+      String(customer.email ?? ''),
 
     phone:
-      customer?.phone ?? '',
+      String(customer.phone ?? ''),
 
     mobile:
-      customer?.mobile ?? '',
+      String(customer.mobile ?? ''),
+
+    tax_id:
+      String(
+        customer.tax_id ??
+          customer.taxId ??
+          ''
+      ),
+
+    taxId:
+      String(
+        customer.tax_id ??
+          customer.taxId ??
+          ''
+      ),
 
     address:
-      customer?.address ?? '',
+      String(customer.address ?? ''),
 
     city:
-      customer?.city ?? '',
+      String(customer.city ?? ''),
 
     postal_code:
-      customer?.postal_code ?? '',
+      String(customer.postal_code ?? ''),
 
     country:
-      customer?.country ?? 'PT',
+      String(customer.country ?? 'PT'),
 
     notes:
-      customer?.notes ?? '',
+      String(customer.notes ?? ''),
 
     is_active:
-      customer?.is_active ?? true,
+      customer.is_active !== false,
+
+    status:
+      customer.status as Customer['status'],
+
+    created_by:
+      customer.created_by
+        ? String(customer.created_by)
+        : null,
 
     created_at:
-      customer?.created_at,
+      String(
+        customer.created_at ??
+          new Date().toISOString()
+      ),
 
     updated_at:
-      customer?.updated_at,
-  } as Customer;
+      customer.updated_at
+        ? String(customer.updated_at)
+        : null,
+
+    workspaceId:
+      String(
+        customer.workspace_id ??
+          customer.workspaceId ??
+          ''
+      ),
+  };
 }
 
-// ==========================================================
-// RESOLVER WORKSPACE
-//
-// Aceita workspace vindo:
-// 1. do parâmetro explícito
-// 2. do próprio cliente
-// ==========================================================
-
-function resolveWorkspaceId(
-  workspaceId?: string,
-  customer?: Partial<Customer> | null
-): string | null {
-
-  if (
-    typeof workspaceId === 'string' &&
-    workspaceId.trim()
-  ) {
-    return workspaceId.trim();
-  }
-
-  const customerWorkspaceId =
-    customer?.workspace_id;
-
-  if (
-    typeof customerWorkspaceId === 'string' &&
-    customerWorkspaceId.trim()
-  ) {
-    return customerWorkspaceId.trim();
-  }
-
-  return null;
-}
-
-// ==========================================================
+// ============================================================
 // SERVICE
-// ==========================================================
+// ============================================================
 
 export const customerService = {
 
-  // ========================================================
-  // LISTAR CLIENTES
-  // ========================================================
+  // ==========================================================
+  // GET ALL
+  // ==========================================================
 
   async getCustomers(
     workspaceId?: string
   ): Promise<Customer[]> {
 
-    if (!workspaceId) {
-      return getLocalCustomers();
-    }
-
+    // LOCAL
     if (
       !isSupabaseConfigured ||
       !supabase
     ) {
-      return getLocalCustomers()
-        .filter(
-          customer =>
-            !customer.workspace_id ||
-            customer.workspace_id === workspaceId
-        )
-        .map(normalizeCustomer);
+      const customers =
+        getLocalCustomers();
+
+      if (!workspaceId) {
+        return customers;
+      }
+
+      return customers.filter(
+        customer =>
+          customer.workspace_id ===
+          workspaceId
+      );
+    }
+
+    // SUPABASE
+    if (!workspaceId) {
+      throw new Error(
+        'Workspace não encontrado.'
+      );
     }
 
     const {
@@ -199,14 +235,17 @@ export const customerService = {
       throw error;
     }
 
-    return (
-      data ?? []
-    ).map(normalizeCustomer);
+    return (data ?? []).map(
+      item =>
+        normalizeCustomer(
+          item as Record<string, unknown>
+        )
+    );
   },
 
-  // ========================================================
-  // BUSCAR CLIENTE
-  // ========================================================
+  // ==========================================================
+  // GET ONE
+  // ==========================================================
 
   async getCustomer(
     customerId: string,
@@ -217,6 +256,7 @@ export const customerService = {
       return null;
     }
 
+    // LOCAL
     if (
       !isSupabaseConfigured ||
       !supabase
@@ -230,15 +270,15 @@ export const customerService = {
             item.id === customerId &&
             (
               !workspaceId ||
-              item.workspace_id === workspaceId
+              item.workspace_id ===
+                workspaceId
             )
         );
 
-      return customer
-        ? normalizeCustomer(customer)
-        : null;
+      return customer ?? null;
     }
 
+    // SUPABASE
     let query =
       supabase
         .from('customers')
@@ -273,34 +313,38 @@ export const customerService = {
       return null;
     }
 
-    return normalizeCustomer(data);
+    return normalizeCustomer(
+      data as Record<string, unknown>
+    );
   },
 
-  // ========================================================
-  // CRIAR CLIENTE
-  // ========================================================
+  // ==========================================================
+  // CREATE
+  // ==========================================================
 
   async createCustomer(
     customer: Partial<Customer>,
-    workspaceId?: string,
+    workspaceId: string,
     userId?: string
   ): Promise<Customer> {
 
-    const resolvedWorkspaceId =
-      resolveWorkspaceId(
-        workspaceId,
-        customer
-      );
-
-    if (!resolvedWorkspaceId) {
+    if (!workspaceId) {
       throw new Error(
         'Workspace não encontrado.'
       );
     }
 
+    const now =
+      new Date().toISOString();
+
+    const companyName =
+      customer.company_name ??
+      customer.company ??
+      '';
+
     const payload = {
       workspace_id:
-        resolvedWorkspaceId,
+        workspaceId,
 
       type:
         customer.type ??
@@ -311,12 +355,11 @@ export const customerService = {
         '',
 
       company_name:
-        customer.company_name ??
-        customer.company ??
-        null,
+        companyName || null,
 
       tax_id:
         customer.tax_id ??
+        customer.taxId ??
         null,
 
       email:
@@ -355,15 +398,24 @@ export const customerService = {
         customer.is_active ??
         true,
 
+      status:
+        customer.status ??
+        'active',
+
       created_by:
         userId ??
+        customer.created_by ??
         null,
+
+      created_at:
+        customer.created_at ??
+        now,
+
+      updated_at:
+        now,
     };
 
-    // ======================================================
     // LOCAL
-    // ======================================================
-
     if (
       !isSupabaseConfigured ||
       !supabase
@@ -371,15 +423,7 @@ export const customerService = {
       const localCustomer =
         normalizeCustomer({
           ...payload,
-
-          id:
-            crypto.randomUUID(),
-
-          created_at:
-            new Date().toISOString(),
-
-          updated_at:
-            new Date().toISOString(),
+          id: generateId(),
         });
 
       const customers =
@@ -396,10 +440,7 @@ export const customerService = {
       return localCustomer;
     }
 
-    // ======================================================
     // SUPABASE
-    // ======================================================
-
     const {
       data,
       error,
@@ -418,25 +459,49 @@ export const customerService = {
       throw error;
     }
 
-    return normalizeCustomer(data);
+    return normalizeCustomer(
+      data as Record<string, unknown>
+    );
   },
 
-  // ========================================================
-  // ATUALIZAR CLIENTE
+  // ==========================================================
+  // ADD CUSTOMER
   //
-  // Compatível com:
-  //
-  // updateCustomer(id, customer, workspaceId)
-  //
-  // updateCustomer(id, customer)
-  //
-  // updateCustomer(id, workspaceId, customer)
-  // ========================================================
+  // Compatibilidade com páginas antigas.
+  // ==========================================================
+
+  async addCustomer(
+    customer: Partial<Customer>,
+    workspaceId?: string,
+    userId?: string
+  ): Promise<Customer> {
+
+    const resolvedWorkspaceId =
+      workspaceId ??
+      customer.workspace_id ??
+      customer.workspaceId;
+
+    if (!resolvedWorkspaceId) {
+      throw new Error(
+        'Workspace não encontrado.'
+      );
+    }
+
+    return this.createCustomer(
+      customer,
+      resolvedWorkspaceId,
+      userId
+    );
+  },
+
+  // ==========================================================
+  // UPDATE
+  // ==========================================================
 
   async updateCustomer(
     customerId: string,
-    arg2?: Partial<Customer> | string,
-    arg3?: Partial<Customer> | string
+    customer: Partial<Customer>,
+    workspaceId?: string
   ): Promise<Customer> {
 
     if (!customerId) {
@@ -445,139 +510,23 @@ export const customerService = {
       );
     }
 
-    // ======================================================
-    // NORMALIZAR ARGUMENTOS
-    // ======================================================
-
-    let customer: Partial<Customer>;
-    let workspaceId: string | undefined;
-
-    // ------------------------------------------------------
-    // FORMATO:
-    //
-    // updateCustomer(id, workspaceId, customer)
-    // ------------------------------------------------------
-
-    if (
-      typeof arg2 === 'string'
-    ) {
-      workspaceId = arg2;
-
-      customer =
-        (
-          arg3 &&
-          typeof arg3 === 'object'
-        )
-          ? arg3
-          : {};
-    }
-
-    // ------------------------------------------------------
-    // FORMATO:
-    //
-    // updateCustomer(id, customer, workspaceId)
-    // ------------------------------------------------------
-
-    else {
-      customer =
-        arg2 &&
-        typeof arg2 === 'object'
-          ? arg2
-          : {};
-
-      workspaceId =
-        typeof arg3 === 'string'
-          ? arg3
-          : undefined;
-    }
-
-    // ======================================================
-    // RESOLVER WORKSPACE
-    // ======================================================
-
-    const resolvedWorkspaceId =
-      resolveWorkspaceId(
-        workspaceId,
-        customer
-      );
-
-    // ======================================================
-    // SE AINDA NÃO TIVER WORKSPACE,
-    // BUSCAR O CLIENTE PELO ID
-    // E DESCOBRIR O WORKSPACE
-    // ======================================================
-
-    if (!resolvedWorkspaceId) {
-
-      if (
-        isSupabaseConfigured &&
-        supabase
-      ) {
-
-        const {
-          data: existingCustomer,
-          error: findError,
-        } = await supabase
-          .from('customers')
-          .select(
-            'id, workspace_id'
-          )
-          .eq(
-            'id',
-            customerId
-          )
-          .maybeSingle();
-
-        if (findError) {
-          console.error(
-            '[customerService] Erro ao localizar workspace do cliente:',
-            findError
-          );
-
-          throw findError;
-        }
-
-        if (
-          existingCustomer?.workspace_id
-        ) {
-          workspaceId =
-            existingCustomer.workspace_id;
-        }
-      }
-    }
-
-    const finalWorkspaceId =
-      resolveWorkspaceId(
-        workspaceId,
-        customer
-      );
-
-    if (!finalWorkspaceId) {
-      throw new Error(
-        'Workspace não encontrado.'
-      );
-    }
-
-    // ======================================================
-    // MODO LOCAL
-    // ======================================================
-
+    // LOCAL
     if (
       !isSupabaseConfigured ||
       !supabase
     ) {
-
       const customers =
         getLocalCustomers();
 
       const index =
         customers.findIndex(
           item =>
-            item.id === customerId &&
+            item.id ===
+            customerId &&
             (
-              !item.workspace_id ||
+              !workspaceId ||
               item.workspace_id ===
-                finalWorkspaceId
+                workspaceId
             )
         );
 
@@ -587,58 +536,116 @@ export const customerService = {
         );
       }
 
-      const updatedCustomer =
+      const updated =
         normalizeCustomer({
           ...customers[index],
-
           ...customer,
-
-          id:
-            customerId,
-
+          id: customerId,
           workspace_id:
-            finalWorkspaceId,
-
+            workspaceId ??
+            customers[index]
+              .workspace_id,
           updated_at:
             new Date().toISOString(),
         });
 
       customers[index] =
-        updatedCustomer;
+        updated;
 
       saveLocalCustomers(
         customers
       );
 
-      return updatedCustomer;
+      return updated;
     }
 
-    // ======================================================
-    // PAYLOAD
-    // ======================================================
+    // BUSCAR CLIENTE
+    const {
+      data: existingCustomer,
+      error: findError,
+    } = await supabase
+      .from('customers')
+      .select('*')
+      .eq(
+        'id',
+        customerId
+      )
+      .maybeSingle();
+
+    if (findError) {
+      console.error(
+        '[customerService] Erro ao localizar cliente:',
+        findError
+      );
+
+      throw findError;
+    }
+
+    if (!existingCustomer) {
+      throw new Error(
+        'Cliente não encontrado.'
+      );
+    }
+
+    const existing =
+      existingCustomer as Record<
+        string,
+        unknown
+      >;
+
+    const existingWorkspaceId =
+      typeof existing.workspace_id ===
+      'string'
+        ? existing.workspace_id
+        : '';
+
+    const effectiveWorkspaceId =
+      existingWorkspaceId ||
+      workspaceId;
+
+    if (!effectiveWorkspaceId) {
+      throw new Error(
+        'Workspace do cliente não encontrado.'
+      );
+    }
+
+    if (
+      workspaceId &&
+      existingWorkspaceId &&
+      workspaceId !==
+        existingWorkspaceId
+    ) {
+      throw new Error(
+        'O cliente não pertence ao workspace informado.'
+      );
+    }
 
     const payload: Record<
       string,
-      any
+      unknown
     > = {};
 
     if (
-      customer.name !== undefined
+      customer.name !==
+      undefined
     ) {
       payload.name =
         customer.name;
     }
 
     if (
-      customer.type !== undefined
+      customer.type !==
+      undefined
     ) {
       payload.type =
         customer.type;
     }
 
     if (
-      customer.company !== undefined ||
-      customer.company_name !== undefined
+      customer.company !==
+        undefined ||
+      customer.company_name !==
+        undefined
     ) {
       payload.company_name =
         customer.company_name ??
@@ -647,15 +654,20 @@ export const customerService = {
     }
 
     if (
-      customer.tax_id !== undefined
+      customer.tax_id !==
+        undefined ||
+      customer.taxId !==
+        undefined
     ) {
       payload.tax_id =
         customer.tax_id ??
+        customer.taxId ??
         null;
     }
 
     if (
-      customer.email !== undefined
+      customer.email !==
+      undefined
     ) {
       payload.email =
         customer.email ??
@@ -663,7 +675,8 @@ export const customerService = {
     }
 
     if (
-      customer.phone !== undefined
+      customer.phone !==
+      undefined
     ) {
       payload.phone =
         customer.phone ??
@@ -671,7 +684,8 @@ export const customerService = {
     }
 
     if (
-      customer.mobile !== undefined
+      customer.mobile !==
+      undefined
     ) {
       payload.mobile =
         customer.mobile ??
@@ -679,7 +693,8 @@ export const customerService = {
     }
 
     if (
-      customer.address !== undefined
+      customer.address !==
+      undefined
     ) {
       payload.address =
         customer.address ??
@@ -687,7 +702,8 @@ export const customerService = {
     }
 
     if (
-      customer.city !== undefined
+      customer.city !==
+      undefined
     ) {
       payload.city =
         customer.city ??
@@ -695,7 +711,8 @@ export const customerService = {
     }
 
     if (
-      customer.postal_code !== undefined
+      customer.postal_code !==
+      undefined
     ) {
       payload.postal_code =
         customer.postal_code ??
@@ -703,7 +720,8 @@ export const customerService = {
     }
 
     if (
-      customer.country !== undefined
+      customer.country !==
+      undefined
     ) {
       payload.country =
         customer.country ??
@@ -711,7 +729,8 @@ export const customerService = {
     }
 
     if (
-      customer.notes !== undefined
+      customer.notes !==
+      undefined
     ) {
       payload.notes =
         customer.notes ??
@@ -719,20 +738,23 @@ export const customerService = {
     }
 
     if (
-      customer.is_active !== undefined
+      customer.is_active !==
+      undefined
     ) {
       payload.is_active =
         customer.is_active;
     }
 
+    if (
+      customer.status !==
+      undefined
+    ) {
+      payload.status =
+        customer.status;
+    }
+
     payload.updated_at =
       new Date().toISOString();
-
-    // ======================================================
-    // ATUALIZAR NO SUPABASE
-    //
-    // ID + WORKSPACE
-    // ======================================================
 
     const {
       data,
@@ -746,50 +768,34 @@ export const customerService = {
       )
       .eq(
         'workspace_id',
-        finalWorkspaceId
+        effectiveWorkspaceId
       )
       .select('*')
       .maybeSingle();
 
-    // ======================================================
-    // ERRO SUPABASE
-    // ======================================================
-
     if (error) {
       console.error(
-        '[customerService] Erro Supabase ao atualizar cliente:',
+        '[customerService] Erro ao atualizar cliente:',
         error
       );
 
       throw error;
     }
 
-    // ======================================================
-    // NENHUM REGISTRO ATUALIZADO
-    // ======================================================
-
     if (!data) {
-
-      console.error(
-        '[customerService] UPDATE não retornou cliente:',
-        {
-          customerId,
-          workspaceId:
-            finalWorkspaceId,
-        }
-      );
-
       throw new Error(
-        'Cliente não encontrado.'
+        'Cliente não encontrado para atualização.'
       );
     }
 
-    return normalizeCustomer(data);
+    return normalizeCustomer(
+      data as Record<string, unknown>
+    );
   },
 
-  // ========================================================
-  // EXCLUIR CLIENTE
-  // ========================================================
+  // ==========================================================
+  // DELETE
+  // ==========================================================
 
   async deleteCustomer(
     customerId: string,
@@ -802,23 +808,25 @@ export const customerService = {
       );
     }
 
+    // LOCAL
     if (
       !isSupabaseConfigured ||
       !supabase
     ) {
-
       const customers =
         getLocalCustomers();
 
       const filtered =
         customers.filter(
           customer =>
-            customer.id !==
-              customerId ||
-            (
-              workspaceId &&
-              customer.workspace_id !==
-                workspaceId
+            !(
+              customer.id ===
+                customerId &&
+              (
+                !workspaceId ||
+                customer.workspace_id ===
+                  workspaceId
+              )
             )
         );
 
@@ -829,57 +837,26 @@ export const customerService = {
       return;
     }
 
-    // ======================================================
-    // Se workspace não foi informado,
-    // descobrir pelo cliente
-    // ======================================================
-
-    let finalWorkspaceId =
-      workspaceId;
-
-    if (!finalWorkspaceId) {
-
-      const {
-        data,
-        error,
-      } = await supabase
+    // SUPABASE
+    let query =
+      supabase
         .from('customers')
-        .select(
-          'workspace_id'
-        )
+        .delete()
         .eq(
           'id',
           customerId
-        )
-        .maybeSingle();
+        );
 
-      if (error) {
-        throw error;
-      }
-
-      finalWorkspaceId =
-        data?.workspace_id;
-    }
-
-    if (!finalWorkspaceId) {
-      throw new Error(
-        'Workspace não encontrado.'
+    if (workspaceId) {
+      query = query.eq(
+        'workspace_id',
+        workspaceId
       );
     }
 
     const {
       error,
-    } = await supabase
-      .from('customers')
-      .delete()
-      .eq(
-        'id',
-        customerId
-      )
-      .eq(
-        'workspace_id',
-        finalWorkspaceId
-      );
+    } = await query;
 
     if (error) {
       console.error(
@@ -891,9 +868,9 @@ export const customerService = {
     }
   },
 
-  // ========================================================
-  // DESATIVAR
-  // ========================================================
+  // ==========================================================
+  // DEACTIVATE
+  // ==========================================================
 
   async deactivateCustomer(
     customerId: string,
@@ -904,16 +881,15 @@ export const customerService = {
       customerId,
       {
         is_active: false,
-        workspace_id:
-          workspaceId,
+        status: 'inactive',
       },
       workspaceId
     );
   },
 
-  // ========================================================
-  // REATIVAR
-  // ========================================================
+  // ==========================================================
+  // ACTIVATE
+  // ==========================================================
 
   async activateCustomer(
     customerId: string,
@@ -924,8 +900,7 @@ export const customerService = {
       customerId,
       {
         is_active: true,
-        workspace_id:
-          workspaceId,
+        status: 'active',
       },
       workspaceId
     );
