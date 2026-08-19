@@ -119,22 +119,12 @@ export const AuthProvider: React.FC<{
           await authService.getCurrentWorkspace();
 
         if (!currentWorkspace) {
-          console.warn(
-            '[AuthContext] Nenhum workspace encontrado para o utilizador.'
-          );
+
 
           setWorkspace(null);
 
           return false;
         }
-
-        console.log(
-          '[AuthContext] Sessão hidratada:',
-          {
-            userId: currentUser.id,
-            workspaceId: currentWorkspace.id,
-          }
-        );
 
         setWorkspace(
           currentWorkspace
@@ -143,10 +133,6 @@ export const AuthProvider: React.FC<{
         return true;
 
       } catch (error) {
-        console.error(
-          '[AuthContext] Erro ao hidratar sessão:',
-          error
-        );
 
         setUser(null);
         setWorkspace(null);
@@ -199,11 +185,6 @@ useEffect(() => {
       if (!mounted) {
         return;
       }
-
-      console.log(
-        '[AuthContext] Auth event:',
-        event
-      );
 
       // ======================================================
       // LOGOUT

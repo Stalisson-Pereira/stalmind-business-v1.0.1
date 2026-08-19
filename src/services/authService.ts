@@ -766,10 +766,6 @@ export const authService = {
 
       return MOCK_WORKSPACE;
     } catch (error) {
-      console.error(
-        '[authService] Erro inesperado ao carregar workspace:',
-        error
-      );
 
       return null;
     }
