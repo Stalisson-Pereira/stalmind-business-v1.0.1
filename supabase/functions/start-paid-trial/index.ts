@@ -22,11 +22,10 @@ function json(data: unknown, status = 200): Response {
 }
 
 function getAdminClient() {
-    const supabaseUrl =
-        Deno.env.get("SUPABASE_URL");
-
-    const serviceRoleKey =
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey = Deno.env.get(
+        "SUPABASE_SERVICE_ROLE_KEY",
+    );
 
     if (!supabaseUrl) {
         throw new Error(
@@ -53,6 +52,7 @@ function getAdminClient() {
 }
 
 Deno.serve(async (req: Request) => {
+
     if (req.method === "OPTIONS") {
         return new Response("ok", {
             headers: corsHeaders,
@@ -70,11 +70,10 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-        /*
-         * ========================================================
-         * AUTENTICAÇÃO
-         * ========================================================
-         */
+
+        // =====================================================
+        // AUTENTICAÇÃO
+        // =====================================================
 
         const authHeader =
             req.headers.get("Authorization");
@@ -123,23 +122,23 @@ Deno.serve(async (req: Request) => {
                 user,
             },
             error: userError,
-        } = await supabaseAuth.auth.getUser();
+        } =
+            await supabaseAuth.auth.getUser();
 
         if (userError || !user) {
             return json(
                 {
                     success: false,
-                    error: "Sessão inválida ou expirada.",
+                    error:
+                        "Sessão inválida ou expirada.",
                 },
                 401,
             );
         }
 
-        /*
-         * ========================================================
-         * BODY
-         * ========================================================
-         */
+        // =====================================================
+        // BODY
+        // =====================================================
 
         const body = await req.json();
 
@@ -154,23 +153,24 @@ Deno.serve(async (req: Request) => {
             provider_plan_id,
         } = body;
 
-        /*
-         * ========================================================
-         * VALIDAÇÕES
-         * ========================================================
-         */
+        // =====================================================
+        // VALIDAÇÕES
+        // =====================================================
 
         if (!workspace_id) {
             return json(
                 {
                     success: false,
-                    error: "workspace_id é obrigatório.",
+                    error:
+                        "workspace_id é obrigatório.",
                 },
                 400,
             );
         }
 
-        if (!["pro", "enterprise"].includes(plan)) {
+        if (
+            !["pro", "enterprise"].includes(plan)
+        ) {
             return json(
                 {
                     success: false,
@@ -181,7 +181,9 @@ Deno.serve(async (req: Request) => {
             );
         }
 
-        if (!["BRL", "EUR", "USD"].includes(currency)) {
+        if (
+            !["BRL", "EUR", "USD"].includes(currency)
+        ) {
             return json(
                 {
                     success: false,
@@ -201,9 +203,7 @@ Deno.serve(async (req: Request) => {
             );
         }
 
-        if (
-            billing_cycle !== "monthly"
-        ) {
+        if (billing_cycle !== "monthly") {
             return json(
                 {
                     success: false,
@@ -249,35 +249,32 @@ Deno.serve(async (req: Request) => {
             );
         }
 
-        /*
-         * ========================================================
-         * ADMIN
-         * ========================================================
-         */
+        // =====================================================
+        // CLIENTE ADMIN
+        // =====================================================
 
-        const supabase =
-            getAdminClient();
+        const supabase = getAdminClient();
 
-        /*
-         * ========================================================
-         * VERIFICAR WORKSPACE
-         * ========================================================
-         */
+        // =====================================================
+        // VERIFICAR WORKSPACE
+        // =====================================================
 
         const {
             data: workspace,
             error: workspaceError,
-        } = await supabase
-            .from("workspaces")
-            .select(`
-        id,
-        plan,
-        trial_used,
-        trial_started_at,
-        trial_ends_at
-      `)
-            .eq("id", workspace_id)
-            .maybeSingle();
+        } =
+            await supabase
+                .from("workspaces")
+                .select(`
+                    id,
+                    plan,
+                    trial_used,
+                    trial_started_at,
+                    trial_ends_at,
+                    plan_billing
+                `)
+                .eq("id", workspace_id)
+                .maybeSingle();
 
         if (workspaceError) {
             throw workspaceError;
@@ -287,27 +284,33 @@ Deno.serve(async (req: Request) => {
             return json(
                 {
                     success: false,
-                    error: "Workspace não encontrado.",
+                    error:
+                        "Workspace não encontrado.",
                 },
                 404,
             );
         }
 
-        /*
-         * ========================================================
-         * VERIFICAR MEMBRO
-         * ========================================================
-         */
+        // =====================================================
+        // VERIFICAR MEMBRO
+        // =====================================================
 
         const {
             data: membership,
             error: membershipError,
-        } = await supabase
-            .from("workspace_members")
-            .select("id")
-            .eq("workspace_id", workspace_id)
-            .eq("user_id", user.id)
-            .maybeSingle();
+        } =
+            await supabase
+                .from("workspace_members")
+                .select("id")
+                .eq(
+                    "workspace_id",
+                    workspace_id,
+                )
+                .eq(
+                    "user_id",
+                    user.id,
+                )
+                .maybeSingle();
 
         if (membershipError) {
             throw membershipError;
@@ -324,11 +327,9 @@ Deno.serve(async (req: Request) => {
             );
         }
 
-        /*
-         * ========================================================
-         * REGRA: PRIMEIRO TRIAL
-         * ========================================================
-         */
+        // =====================================================
+        // PRIMEIRO TRIAL
+        // =====================================================
 
         if (workspace.trial_used === true) {
             return json(
@@ -341,11 +342,9 @@ Deno.serve(async (req: Request) => {
             );
         }
 
-        /*
-         * ========================================================
-         * REGRA: WORKSPACE DEVE ESTAR NO FREE
-         * ========================================================
-         */
+        // =====================================================
+        // WORKSPACE PRECISA ESTAR NO FREE
+        // =====================================================
 
         if (workspace.plan !== "free") {
             return json(
@@ -358,16 +357,15 @@ Deno.serve(async (req: Request) => {
             );
         }
 
-        /*
-         * ========================================================
-         * REGRA: TRIAL ATIVO
-         * ========================================================
-         */
+        // =====================================================
+        // TRIAL ATIVO
+        // =====================================================
 
         if (
             workspace.trial_ends_at &&
-            new Date(workspace.trial_ends_at) >
-            new Date()
+            new Date(
+                workspace.trial_ends_at,
+            ) > new Date()
         ) {
             return json(
                 {
@@ -379,20 +377,45 @@ Deno.serve(async (req: Request) => {
             );
         }
 
-        /*
-         * ========================================================
-         * VERIFICAR SUBSCRIPTION
-         * ========================================================
-         */
+        // =====================================================
+        // BUSCAR SUBSCRIPTION
+        // =====================================================
 
         const {
             data: subscription,
             error: subscriptionError,
-        } = await supabase
-            .from("subscriptions")
-            .select("id, plan, status")
-            .eq("workspace_id", workspace_id)
-            .maybeSingle();
+        } =
+            await supabase
+                .from("subscriptions")
+                .select(`
+                    id,
+                    workspace_id,
+                    plan,
+                    status,
+                    trial_ends_at,
+                    current_period_start,
+                    current_period_end,
+                    provider,
+                    provider_customer_id,
+                    provider_subscription_id,
+                    cancel_at_period_end,
+                    cancelled_at,
+                    cancellation_reason,
+                    provider_plan_id,
+                    provider_product_id
+                `)
+                .eq(
+                    "workspace_id",
+                    workspace_id,
+                )
+                .order(
+                    "created_at",
+                    {
+                        ascending: false,
+                    },
+                )
+                .limit(1)
+                .maybeSingle();
 
         if (subscriptionError) {
             throw subscriptionError;
@@ -409,11 +432,9 @@ Deno.serve(async (req: Request) => {
             );
         }
 
-        /*
-         * ========================================================
-         * DATAS
-         * ========================================================
-         */
+        // =====================================================
+        // DATAS
+        // =====================================================
 
         const startedAt =
             new Date();
@@ -421,106 +442,173 @@ Deno.serve(async (req: Request) => {
         const endsAt =
             new Date(
                 startedAt.getTime() +
-                14 * 24 * 60 * 60 * 1000,
+                    14 *
+                        24 *
+                        60 *
+                        60 *
+                        1000,
             );
 
-        /*
-         * ========================================================
-         * WORKSPACE
-         * ========================================================
-         */
+        const startedAtISO =
+            startedAt.toISOString();
+
+        const endsAtISO =
+            endsAt.toISOString();
+
+        // =====================================================
+        // ATUALIZAR WORKSPACE
+        //
+        // IMPORTANTE:
+        // FREE -> PRO / ENTERPRISE
+        // =====================================================
 
         const {
             data: updatedWorkspace,
-            error: updateWorkspaceError,
-        } = await supabase
-            .from("workspaces")
-            .update({
-                plan,
-                trial_used: true,
-                trial_started_at:
-                    startedAt.toISOString(),
-                trial_ends_at:
-                    endsAt.toISOString(),
-                plan_billing: "monthly",
-                updated_at:
-                    startedAt.toISOString(),
-            })
-            .eq("id", workspace_id)
-            .eq("plan", "free")
-            .eq("trial_used", false)
-            .select()
-            .single();
+            error:
+                updateWorkspaceError,
+        } =
+            await supabase
+                .from("workspaces")
+                .update({
+                    plan: plan,
+
+                    trial_used: true,
+
+                    trial_started_at:
+                        startedAtISO,
+
+                    trial_ends_at:
+                        endsAtISO,
+
+                    plan_billing:
+                        "monthly",
+
+                    updated_at:
+                        startedAtISO,
+                })
+                .eq(
+                    "id",
+                    workspace_id,
+                )
+                .eq(
+                    "plan",
+                    "free",
+                )
+                .eq(
+                    "trial_used",
+                    false,
+                )
+                .select()
+                .single();
 
         if (updateWorkspaceError) {
             throw updateWorkspaceError;
         }
 
-        /*
-         * ========================================================
-         * SUBSCRIPTION
-         * ========================================================
-         */
+        if (!updatedWorkspace) {
+            throw new Error(
+                "Não foi possível atualizar o plano do workspace.",
+            );
+        }
+
+        // =====================================================
+        // ATUALIZAR SUBSCRIPTION
+        //
+        // IMPORTANTE:
+        // deve ficar exatamente igual ao workspace
+        // =====================================================
 
         const {
             data: updatedSubscription,
-            error: updateSubscriptionError,
-        } = await supabase
-            .from("subscriptions")
-            .update({
-                plan,
-                status: "trialing",
-                trial_ends_at:
-                    endsAt.toISOString(),
+            error:
+                updateSubscriptionError,
+        } =
+            await supabase
+                .from("subscriptions")
+                .update({
+                    plan: plan,
 
-                current_period_start:
-                    startedAt.toISOString(),
+                    status:
+                        "trialing",
 
-                current_period_end:
-                    endsAt.toISOString(),
+                    trial_ends_at:
+                        endsAtISO,
 
-                provider,
-                provider_plan_id,
-                provider_product_id,
+                    current_period_start:
+                        startedAtISO,
 
-                cancel_at_period_end:
-                    false,
+                    current_period_end:
+                        endsAtISO,
 
-                cancelled_at: null,
-                cancellation_reason: null,
+                    provider:
+                        provider,
 
-                updated_at:
-                    startedAt.toISOString(),
-            })
-            .eq("id", subscription.id)
-            .select()
-            .single();
+                    provider_plan_id:
+                        provider_plan_id,
+
+                    provider_product_id:
+                        provider_product_id,
+
+                    cancel_at_period_end:
+                        false,
+
+                    cancelled_at:
+                        null,
+
+                    cancellation_reason:
+                        null,
+
+                    updated_at:
+                        startedAtISO,
+                })
+                .eq(
+                    "id",
+                    subscription.id,
+                )
+                .select()
+                .single();
 
         if (updateSubscriptionError) {
-            /*
-             * Rollback do workspace
-             */
+
+            console.error(
+                "[start-paid-trial] Erro ao atualizar subscription:",
+                updateSubscriptionError,
+            );
+
+            // =================================================
+            // ROLLBACK
+            // =================================================
 
             await supabase
                 .from("workspaces")
                 .update({
                     plan: "free",
+
                     trial_used: false,
-                    trial_started_at: null,
-                    trial_ends_at: null,
+
+                    trial_started_at:
+                        null,
+
+                    trial_ends_at:
+                        null,
+
+                    plan_billing:
+                        "monthly",
+
                     updated_at:
                         new Date().toISOString(),
                 })
-                .eq("id", workspace_id);
+                .eq(
+                    "id",
+                    workspace_id,
+                );
 
             throw updateSubscriptionError;
         }
 
-        /*
-         * ========================================================
-         * SUCESSO
-         * ========================================================
-         */
+        // =====================================================
+        // SUCESSO
+        // =====================================================
 
         return json({
             success: true,
@@ -536,10 +624,13 @@ Deno.serve(async (req: Request) => {
 
             trial: {
                 plan,
+
                 started_at:
-                    startedAt.toISOString(),
+                    startedAtISO,
+
                 ends_at:
-                    endsAt.toISOString(),
+                    endsAtISO,
+
                 days: 14,
             },
 
@@ -553,6 +644,7 @@ Deno.serve(async (req: Request) => {
         });
 
     } catch (error) {
+
         console.error(
             "[start-paid-trial] error:",
             error,
@@ -561,6 +653,7 @@ Deno.serve(async (req: Request) => {
         return json(
             {
                 success: false,
+
                 error:
                     error instanceof Error
                         ? error.message
