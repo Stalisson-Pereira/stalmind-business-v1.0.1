@@ -477,7 +477,7 @@ function isTrialAlreadyActiveError(
         message.includes('ja possui')
       ) &&
       message.includes('trial')
-    ||
+      ||
       (
         message.includes('trial') &&
         message.includes('ativo')
@@ -992,8 +992,8 @@ export const authService = {
       name:
         email
           ? email
-              .split('@')[0]
-              .toUpperCase()
+            .split('@')[0]
+            .toUpperCase()
           : MOCK_USER.name,
     };
 
@@ -1314,61 +1314,80 @@ export const authService = {
 
   async startTrial(
     workspaceId: string,
-    selectedPlan:
-      | 'pro'
-      | 'enterprise'
+    selectedPlan: 'pro' | 'enterprise'
   ): Promise<boolean> {
+
+    // ==========================================================
+    // VALIDAR WORKSPACE
+    // ==========================================================
 
     if (
       !workspaceId ||
-      !isValidUUID(
-        workspaceId
-      )
+      !isValidUUID(workspaceId)
     ) {
       throw new Error(
-        'O ID do workspace não é válido.'
+        'O ID do workspace não é um UUID válido.'
       );
     }
+
+
+    // ==========================================================
+    // VALIDAR PLANO
+    // ==========================================================
 
     const plan =
       validateTrialPlan(
         selectedPlan
       );
 
+
+    // ==========================================================
+    // SUPABASE
+    // ==========================================================
+
     if (
       !isSupabaseConfigured ||
       !supabase
     ) {
-      return false;
+      throw new Error(
+        'Supabase não está configurado.'
+      );
     }
 
-    // --------------------------------------------------------
-    // SESSÃO
-    // --------------------------------------------------------
+
+    // ==========================================================
+    // VERIFICAR SESSÃO
+    // ==========================================================
 
     const {
-      data: sessionData,
-      error: sessionError,
+      data: {
+        session
+      },
+      error: sessionError
     } =
       await supabase.auth.getSession();
 
     if (sessionError) {
+      console.error(
+        '[authService] Erro ao obter sessão:',
+        sessionError
+      );
+
       throw new Error(
-        'Não foi possível verificar a sessão do usuário.'
+        'Não foi possível verificar sua sessão.'
       );
     }
 
-    if (
-      !sessionData.session?.user
-    ) {
+    if (!session?.user) {
       throw new Error(
-        'Usuário não autenticado.'
+        'Usuário não autenticado. Faça login novamente.'
       );
     }
 
-    // --------------------------------------------------------
-    // WORKSPACE
-    // --------------------------------------------------------
+
+    // ==========================================================
+    // CONFIRMAR WORKSPACE
+    // ==========================================================
 
     const currentWorkspace =
       await this.getCurrentWorkspace();
@@ -1379,6 +1398,7 @@ export const authService = {
       );
     }
 
+
     if (
       currentWorkspace.id !==
       workspaceId
@@ -1388,9 +1408,10 @@ export const authService = {
       );
     }
 
-    // --------------------------------------------------------
-    // TRIAL JÁ USADO
-    // --------------------------------------------------------
+
+    // ==========================================================
+    // TRIAL JÁ UTILIZADO
+    // ==========================================================
 
     if (
       currentWorkspace.trialUsed
@@ -1400,9 +1421,10 @@ export const authService = {
       );
     }
 
-    // --------------------------------------------------------
+
+    // ==========================================================
     // TRIAL ATIVO
-    // --------------------------------------------------------
+    // ==========================================================
 
     if (
       hasActiveTrial(
@@ -1412,36 +1434,45 @@ export const authService = {
       return false;
     }
 
-    // --------------------------------------------------------
-    // PRIMEIRO TRIAL SOMENTE NO FREE
-    // --------------------------------------------------------
+
+    // ==========================================================
+    // GARANTIR FREE
+    // ==========================================================
 
     if (
-      currentWorkspace.plan !==
-      PLANS.FREE
+      normalizePlan(
+        currentWorkspace.plan
+      ) !== PLANS.FREE
     ) {
       throw new Error(
         'O workspace já possui um plano diferente de Free.'
       );
     }
 
-    // --------------------------------------------------------
+
+    // ==========================================================
     // RPC
-    // --------------------------------------------------------
+    // ==========================================================
 
     const {
-      error,
+      data,
+      error
     } =
       await supabase.rpc(
         'start_workspace_trial',
         {
           target_workspace:
-            currentWorkspace.id,
+            workspaceId,
 
           selected_plan:
-            plan,
+            plan
         }
       );
+
+
+    // ==========================================================
+    // ERRO RPC
+    // ==========================================================
 
     if (error) {
 
@@ -1450,23 +1481,6 @@ export const authService = {
         error
       );
 
-      if (
-        isTrialAlreadyActiveError(
-          error
-        )
-      ) {
-        return false;
-      }
-
-      if (
-        isTrialAlreadyUsedError(
-          error
-        )
-      ) {
-        throw new Error(
-          'Este workspace já utilizou o período de teste gratuito.'
-        );
-      }
 
       if (
         error.code === '42501'
@@ -1476,18 +1490,89 @@ export const authService = {
         );
       }
 
+
       if (
         error.code === 'PGRST202'
       ) {
         throw new Error(
-          'A função start_workspace_trial não foi encontrada no Supabase ou seus parâmetros não correspondem à função criada no banco.'
+          'A função start_workspace_trial não foi encontrada no Supabase. Execute o SQL de correção.'
         );
       }
 
+
+      const message =
+        String(
+          error.message || ''
+        ).toLowerCase();
+
+
+      if (
+        message.includes(
+          'já foi utilizado'
+        ) ||
+        message.includes(
+          'ja foi utilizado'
+        ) ||
+        message.includes(
+          'trial_used'
+        )
+      ) {
+        throw new Error(
+          'Este workspace já utilizou o período de teste gratuito.'
+        );
+      }
+
+
+      if (
+        message.includes(
+          'período de teste ativo'
+        ) ||
+        message.includes(
+          'periodo de teste ativo'
+        )
+      ) {
+        return false;
+      }
+
+
+      if (
+        message.includes(
+          'não pertence'
+        ) ||
+        message.includes(
+          'nao pertence'
+        )
+      ) {
+        throw new Error(
+          'Você não possui acesso a este workspace.'
+        );
+      }
+
+
       throw new Error(
-        `Não foi possível iniciar o período de teste: ${error.message}`
+        error.message ||
+        'Não foi possível iniciar o período de teste.'
       );
     }
+
+
+    // ==========================================================
+    // CONFIRMAR RETORNO
+    // ==========================================================
+
+    if (
+      !data ||
+      data.success !== true
+    ) {
+      throw new Error(
+        'O período de teste não foi confirmado pelo servidor.'
+      );
+    }
+
+
+    // ==========================================================
+    // SUCESSO
+    // ==========================================================
 
     return true;
   },
@@ -1502,13 +1587,23 @@ export const authService = {
       | 'enterprise'
   ): Promise<Workspace> {
 
+    // ==========================================================
+    // VALIDAR PLANO
+    // ==========================================================
+
     const plan =
       validateTrialPlan(
         selectedPlan
       );
 
+
+    // ==========================================================
+    // BUSCAR WORKSPACE
+    // ==========================================================
+
     const workspace =
       await this.getCurrentWorkspace();
+
 
     if (!workspace) {
       throw new Error(
@@ -1516,13 +1611,15 @@ export const authService = {
       );
     }
 
-    // --------------------------------------------------------
-    // PRIMEIRO TRIAL
-    // --------------------------------------------------------
+
+    // ==========================================================
+    // FREE + TRIAL DISPONÍVEL
+    // ==========================================================
 
     if (
-      workspace.plan ===
-        PLANS.FREE &&
+      normalizePlan(
+        workspace.plan
+      ) === PLANS.FREE &&
       workspace.trialUsed === false
     ) {
 
@@ -1532,35 +1629,49 @@ export const authService = {
           plan
         );
 
+
       if (!started) {
         throw new Error(
           'Não foi possível iniciar o período de teste.'
         );
       }
 
+
+      // --------------------------------------------------------
+      // RECARREGAR DO BANCO
+      // --------------------------------------------------------
+
       const updated =
         await this.getCurrentWorkspace();
 
+
       if (!updated) {
         throw new Error(
-          'Não foi possível atualizar o workspace.'
+          'O período de teste foi iniciado, mas não foi possível atualizar o workspace.'
         );
       }
+
 
       return updated;
     }
 
-    // --------------------------------------------------------
+
+    // ==========================================================
     // TRIAL JÁ USADO
-    // --------------------------------------------------------
+    // ==========================================================
 
     if (
       workspace.trialUsed
     ) {
       throw new Error(
-        'O período de teste gratuito já foi utilizado. Para utilizar este plano novamente, é necessário realizar o pagamento.'
+        'O período de teste gratuito já foi utilizado. Para continuar com este plano, é necessário realizar o pagamento.'
       );
     }
+
+
+    // ==========================================================
+    // OUTRO CASO
+    // ==========================================================
 
     throw new Error(
       `Não é possível iniciar o plano ${plan} desta forma. Utilize o processo de pagamento.`
@@ -1573,12 +1684,22 @@ export const authService = {
 
   async syncTrialStatus(): Promise<Workspace | null> {
 
+    // ==========================================================
+    // BUSCAR WORKSPACE
+    // ==========================================================
+
     const workspace =
       await this.getCurrentWorkspace();
+
 
     if (!workspace) {
       return null;
     }
+
+
+    // ==========================================================
+    // TRIAL AINDA NÃO EXPIROU
+    // ==========================================================
 
     if (
       !hasExpiredTrial(
@@ -1588,12 +1709,23 @@ export const authService = {
       return workspace;
     }
 
+
+    // ==========================================================
+    // JÁ ESTÁ NO FREE
+    // ==========================================================
+
     if (
-      workspace.plan ===
-      PLANS.FREE
+      normalizePlan(
+        workspace.plan
+      ) === PLANS.FREE
     ) {
       return workspace;
     }
+
+
+    // ==========================================================
+    // DEMO
+    // ==========================================================
 
     if (
       !isSupabaseConfigured ||
@@ -1601,6 +1733,11 @@ export const authService = {
     ) {
       return workspace;
     }
+
+
+    // ==========================================================
+    // VALIDAR UUID
+    // ==========================================================
 
     if (
       !isValidUUID(
@@ -1612,16 +1749,22 @@ export const authService = {
       );
     }
 
+
+    // ==========================================================
+    // EXPIRAR TRIAL
+    // ==========================================================
+
     const {
-      error,
+      error
     } =
       await supabase.rpc(
         'expire_workspace_trial',
         {
           target_workspace:
-            workspace.id,
+            workspace.id
         }
       );
+
 
     if (error) {
 
@@ -1629,6 +1772,7 @@ export const authService = {
         '[authService] Erro expire_workspace_trial:',
         error
       );
+
 
       if (
         error.code === '42501'
@@ -1638,6 +1782,7 @@ export const authService = {
         );
       }
 
+
       if (
         error.code === 'PGRST202'
       ) {
@@ -1646,10 +1791,17 @@ export const authService = {
         );
       }
 
+
       throw new Error(
-        `Não foi possível finalizar o período de teste: ${error.message}`
+        error.message ||
+        'Não foi possível finalizar o período de teste.'
       );
     }
+
+
+    // ==========================================================
+    // RECARREGAR
+    // ==========================================================
 
     return this.getCurrentWorkspace();
   },
@@ -1783,7 +1935,7 @@ export const authService = {
     if (
       data.id &&
       data.id !==
-        currentWorkspace.id
+      currentWorkspace.id
     ) {
       throw new Error(
         'Não é permitido alterar o ID do workspace.'
@@ -1797,7 +1949,7 @@ export const authService = {
     if (
       data.ownerId &&
       data.ownerId !==
-        currentWorkspace.ownerId
+      currentWorkspace.ownerId
     ) {
       throw new Error(
         'Não é permitido alterar o proprietário do workspace.'
@@ -1829,7 +1981,7 @@ export const authService = {
     if (
       data.trialUsed !== undefined &&
       data.trialUsed !==
-        currentWorkspace.trialUsed
+      currentWorkspace.trialUsed
     ) {
       throw new Error(
         'O status do período de teste só pode ser alterado pelo backend.'
@@ -1839,7 +1991,7 @@ export const authService = {
     if (
       data.trialStartedAt !== undefined &&
       data.trialStartedAt !==
-        currentWorkspace.trialStartedAt
+      currentWorkspace.trialStartedAt
     ) {
       throw new Error(
         'A data de início do trial só pode ser alterada pelo backend.'
@@ -1849,7 +2001,7 @@ export const authService = {
     if (
       data.trialEndsAt !== undefined &&
       data.trialEndsAt !==
-        currentWorkspace.trialEndsAt
+      currentWorkspace.trialEndsAt
     ) {
       throw new Error(
         'A data de término do trial só pode ser alterada pelo backend.'

@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { notificationService } from '../services/notificationService';
 import { Modal } from '../components/common/Modal';
 import { supabase } from '../lib/supabaseClient';
+import { authService } from '../services/authService';
 
 import {
     ArrowRight,
@@ -903,18 +904,6 @@ export const PlansPage: React.FC = () => {
             return;
         }
 
-        const databasePrice =
-            getDatabasePrice(
-                plan.id
-            );
-
-        if (!databasePrice) {
-            setErrorMessage(
-                `Não existe um preço ativo para ${plan.name} em ${currency} no banco de dados.`
-            );
-            return;
-        }
-
         setSelectedPlan(
             plan
         );
@@ -953,10 +942,8 @@ export const PlansPage: React.FC = () => {
             }
 
             if (
-                selectedPlan.id !==
-                    'Pro' &&
-                selectedPlan.id !==
-                    'Enterprise'
+                selectedPlan.id !== 'Pro' &&
+                selectedPlan.id !== 'Enterprise'
             ) {
                 setErrorMessage(
                     'Plano inválido.'
@@ -964,159 +951,67 @@ export const PlansPage: React.FC = () => {
                 return;
             }
 
-            const databasePrice =
-                getDatabasePrice(
-                    selectedPlan.id
-                );
-
-            if (!databasePrice) {
+            if (trialUsed) {
                 setErrorMessage(
-                    `Não existe preço ativo para o plano ${selectedPlan.name} em ${currency}.`
+                    'Este workspace já utilizou o período de teste gratuito de 14 dias.'
                 );
                 return;
             }
 
-            setIsProcessing(
-                true
-            );
+            if (trialIsActive) {
+                setErrorMessage(
+                    'Este workspace já possui um período de teste ativo.'
+                );
+                return;
+            }
 
-            setErrorMessage(
-                null
-            );
+            setIsProcessing(true);
+            setErrorMessage(null);
 
             try {
                 const selectedPlanForDatabase =
-                    PLAN_DATABASE_MAP[
-                        selectedPlan.id
-                    ];
+                    PLAN_DATABASE_MAP[selectedPlan.id];
 
                 console.log(
-                    '[PlansPage] Iniciando trial:',
+                    '[PlansPage] Iniciando trial via authService.selectPlan:',
                     {
-                        workspace_id:
-                            workspaceId,
-
-                        plan:
-                            selectedPlanForDatabase,
-
-                        billing_cycle:
-                            billingCycle,
-
-                        currency,
-
-                        amount:
-                            databasePrice.amount,
-
-                        provider:
-                            databasePrice.provider,
-
-                        provider_plan_id:
-                            databasePrice.provider_plan_id,
-
-                        provider_product_id:
-                            databasePrice.provider_product_id,
+                        workspace_id: workspaceId,
+                        plan: selectedPlanForDatabase,
                     }
                 );
 
-                /* ==================================================
-                   EDGE FUNCTION
-                ================================================== */
-
-                const {
-                    data,
-                    error,
-                } =
-                    await supabase.functions.invoke(
-                        'start-paid-trial',
-                        {
-                            body: {
-                                workspace_id:
-                                    workspaceId,
-
-                                plan:
-                                    selectedPlanForDatabase,
-
-                                billing_cycle:
-                                    'monthly',
-
-                                currency,
-
-                                provider:
-                                    'paypal',
-
-                                amount:
-                                    databasePrice.amount,
-
-                                provider_product_id:
-                                    databasePrice.provider_product_id,
-
-                                provider_plan_id:
-                                    databasePrice.provider_plan_id,
-                            },
-                        }
+                /*
+                 * IMPORTANTE:
+                 * O trial não é um pagamento.
+                 * Portanto NÃO chamamos a Edge Function
+                 * start-paid-trial e NÃO usamos updateWorkspace
+                 * para alterar o plano.
+                 *
+                 * authService.selectPlan() já chama a RPC
+                 * start_workspace_trial, que é a operação segura
+                 * responsável por alterar o plano e registrar o trial.
+                 */
+                const updatedWorkspace =
+                    await authService.selectPlan(
+                        selectedPlanForDatabase
                     );
 
-                if (error) {
-                    console.error(
-                        '[PlansPage] Erro da Edge Function:',
-                        error
+                if (!updatedWorkspace) {
+                    throw new Error(
+                        'O Supabase não retornou o workspace atualizado após iniciar o trial.'
                     );
-
-                    throw error;
                 }
 
-                console.log(
-                    '[PlansPage] Resposta:',
-                    data
-                );
-
-                /* ==================================================
-                   NORMALIZAR
-                ================================================== */
-
-                const rawResult =
-                    Array.isArray(data)
-                        ? data[0]
-                        : data;
-
                 if (
-                    !rawResult ||
-                    typeof rawResult !==
-                        'object'
+                    updatedWorkspace.id !== workspaceId
                 ) {
                     throw new Error(
-                        'O Supabase não retornou uma resposta válida ao iniciar o período de teste.'
+                        'O workspace retornado pelo servidor não corresponde ao workspace atual.'
                     );
                 }
 
-                const result =
-                    rawResult as TrialFunctionResponse;
-
-                /* ==================================================
-                   ERRO
-                ================================================== */
-
                 if (
-                    result.success ===
-                    false
-                ) {
-                    throw new Error(
-                        result.message ??
-                            result.error ??
-                            'A Edge Function não conseguiu iniciar o período de teste.'
-                    );
-                }
-
-                /* ==================================================
-                   VALIDAR PLANO
-                ================================================== */
-
-                const returnedPlan =
-                    result.plan ??
-                    selectedPlanForDatabase;
-
-                if (
-                    returnedPlan !==
+                    updatedWorkspace.plan !==
                     selectedPlanForDatabase
                 ) {
                     throw new Error(
@@ -1124,235 +1019,125 @@ export const PlansPage: React.FC = () => {
                     );
                 }
 
-                /* ==================================================
-                   DATAS
-                ================================================== */
-
                 const startedAt =
-                    result.trial_started_at ??
+                    updatedWorkspace.trialStartedAt ??
                     null;
 
                 const endsAt =
-                    result.trial_ends_at ??
+                    updatedWorkspace.trialEndsAt ??
                     null;
 
-                const returnedTrialUsed =
-                    result.trial_used ===
-                    true;
-
-                const explicitSuccess =
-                    result.success ===
-                    true;
-
-                const trialWasStarted =
-                    returnedTrialUsed &&
-                    Boolean(
-                        startedAt
-                    ) &&
-                    Boolean(
-                        endsAt
-                    );
-
                 if (
-                    !trialWasStarted &&
-                    !explicitSuccess
+                    !updatedWorkspace.trialUsed ||
+                    !startedAt ||
+                    !endsAt
                 ) {
-                    console.error(
-                        '[PlansPage] Resposta inesperada:',
-                        result
-                    );
-
                     throw new Error(
                         'O período de teste não foi confirmado pelo Supabase.'
                     );
                 }
 
                 /* ==================================================
-                   ATUALIZAR WORKSPACE
-                ================================================== */
-
-                await updateWorkspace(
-                    {
-                        plan:
-                            selectedPlanForDatabase,
-
-                        planBilling:
-                            'monthly',
-
-                        trial_used:
-                            true,
-
-                        trial_started_at:
-                            startedAt,
-
-                        trial_ends_at:
-                            endsAt,
-                    } as any
-                );
-
-                /* ==================================================
                    ESTADO LOCAL
                 ================================================== */
 
-                setLocalTrial(
-                    {
-                        used:
-                            true,
-
-                        startedAt,
-
-                        endsAt,
-                    }
-                );
+                setLocalTrial({
+                    used: true,
+                    startedAt,
+                    endsAt,
+                });
 
                 /* ==================================================
-                   SUBSCRIPTION
+                   SUBSCRIPTION LOCAL
                 ================================================== */
 
-                setSubscription(
-                    {
-                        ...subscription,
-
-                        workspace_id:
-                            workspaceId,
-
-                        plan:
-                            selectedPlanForDatabase,
-
-                        status:
-                            'trialing',
-
-                        trial_ends_at:
-                            endsAt,
-
-                        provider:
-                            'paypal',
-                    }
-                );
-
-                /* ==================================================
-                   NOTIFICAÇÃO
-                ================================================== */
-
-                createTrialNotification(
-                    selectedPlan
-                );
+                setSubscription({
+                    ...subscription,
+                    workspace_id: workspaceId,
+                    plan: selectedPlanForDatabase,
+                    status: 'trialing',
+                    trial_ends_at: endsAt,
+                    provider: null,
+                });
 
                 /* ==================================================
                    RESULTADO
                 ================================================== */
 
-                const normalizedResult: TrialResult =
-                    {
-                        success:
-                            true,
-
-                        workspace_id:
-                            result.workspace_id ??
-                            result.id ??
-                            workspaceId,
-
-                        plan:
-                            returnedPlan,
-
-                        trial_used:
-                            result.trial_used ??
-                            true,
-
-                        trial_started_at:
-                            startedAt,
-
-                        trial_ends_at:
-                            endsAt,
-
-                        days:
-                            result.days ??
-                            14,
-                    };
+                const normalizedResult: TrialResult = {
+                    success: true,
+                    workspace_id: workspaceId,
+                    plan: selectedPlanForDatabase,
+                    trial_used: true,
+                    trial_started_at: startedAt,
+                    trial_ends_at: endsAt,
+                    days: 14,
+                };
 
                 setTrialResult(
                     normalizedResult
                 );
 
-                setTrialSuccess(
-                    true
+                setTrialSuccess(true);
+
+                createTrialNotification(
+                    selectedPlan
                 );
 
                 console.log(
                     '[PlansPage] Trial confirmado:',
                     normalizedResult
                 );
-            } catch (
-                error: unknown
-            ) {
+            } catch (error: unknown) {
                 console.error(
-                    '[PlansPage] Erro completo:',
+                    '[PlansPage] Erro ao iniciar trial:',
                     error
                 );
 
                 let message =
                     'Não foi possível iniciar o período de teste.';
 
-                if (
+                if (error instanceof Error) {
+                    message =
+                        error.message || message;
+                } else if (
                     error &&
-                    typeof error ===
-                        'object'
+                    typeof error === 'object'
                 ) {
                     const errorData =
                         error as {
                             code?: string;
                             status?: number;
                             message?: string;
-                            details?: string;
-                            hint?: string;
                         };
 
                     if (
-                        errorData.status ===
-                        401
+                        errorData.status === 401
                     ) {
                         message =
                             'Sua sessão expirou. Faça login novamente e tente outra vez.';
                     } else if (
-                        errorData.status ===
-                            403 ||
-                        errorData.code ===
-                            '42501'
+                        errorData.status === 403 ||
+                        errorData.code === '42501'
                     ) {
                         message =
                             'Você não possui permissão para iniciar o período de teste neste workspace.';
                     } else if (
-                        errorData.status ===
-                        404
+                        errorData.code === 'PGRST202'
                     ) {
                         message =
-                            'A Edge Function start-paid-trial não foi encontrada no Supabase.';
+                            'A função start_workspace_trial não foi encontrada no Supabase.';
                     } else if (
-                        typeof errorData.message ===
-                            'string' &&
-                        errorData.message.trim()
+                        errorData.message
                     ) {
                         message =
                             errorData.message;
                     }
                 }
 
-                if (
-                    error instanceof
-                        Error &&
-                    error.message.trim()
-                ) {
-                    message =
-                        error.message;
-                }
-
-                setErrorMessage(
-                    message
-                );
+                setErrorMessage(message);
             } finally {
-                setIsProcessing(
-                    false
-                );
+                setIsProcessing(false);
             }
         };
 
@@ -1721,10 +1506,7 @@ export const PlansPage: React.FC = () => {
                         const trialAvailable =
                             isPaid &&
                             !trialUsed &&
-                            !trialIsActive &&
-                            Boolean(
-                                databasePrice
-                            );
+                            !trialIsActive;
 
                         const disabled =
                             isCurrent ||
@@ -1734,7 +1516,7 @@ export const PlansPage: React.FC = () => {
                                 (
                                     trialUsed ||
                                     trialIsActive ||
-                                    !databasePrice
+                                    false
                                 )
                             );
 
@@ -2100,7 +1882,7 @@ export const PlansPage: React.FC = () => {
 
                         <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
 
-                            A subscrição comercial utiliza PayPal. Os identificadores dos planos PayPal são mantidos no banco de dados.
+                            Após o período de teste, a subscrição poderá ser paga pelos métodos de pagamento configurados para o plano.
 
                         </p>
 
@@ -2278,9 +2060,10 @@ export const PlansPage: React.FC = () => {
 
                         <button
                             type="button"
-                            onClick={
-                                closeTrialModal
-                            }
+                            onClick={() => {
+                                closeTrialModal();
+                                window.location.reload();
+                            }}
                             className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all cursor-pointer"
                         >
                             Começar a utilizar o plano
@@ -2410,7 +2193,7 @@ export const PlansPage: React.FC = () => {
                             </div>
 
                             <p className="text-[10px] text-indigo-500 mt-1 text-right">
-                                Cobrança mensal • PayPal • {currency}
+                                Cobrança mensal • {currency}
                             </p>
 
                         </div>
