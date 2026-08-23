@@ -972,14 +972,6 @@ export const PlansPage: React.FC = () => {
                 const selectedPlanForDatabase =
                     PLAN_DATABASE_MAP[selectedPlan.id];
 
-                console.log(
-                    '[PlansPage] Iniciando trial via authService.selectPlan:',
-                    {
-                        workspace_id: workspaceId,
-                        plan: selectedPlanForDatabase,
-                    }
-                );
-
                 /*
                  * IMPORTANTE:
                  * O trial não é um pagamento.
@@ -1084,10 +1076,6 @@ export const PlansPage: React.FC = () => {
                     selectedPlan
                 );
 
-                console.log(
-                    '[PlansPage] Trial confirmado:',
-                    normalizedResult
-                );
             } catch (error: unknown) {
                 console.error(
                     '[PlansPage] Erro ao iniciar trial:',
