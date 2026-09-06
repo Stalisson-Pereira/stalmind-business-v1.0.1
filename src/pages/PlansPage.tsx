@@ -327,7 +327,7 @@ const PLAN_TIERS: PlanTier[] = [
             'Clientes e orçamentos ilimitados',
             'Assistente IA Ilimitado (Gemini 2.5/3 Pro)',
             'Links de Pagamento & Cobranças Automáticas',
-            'Integrações PIX, PayPal, Stripe e SumUp',
+            'Integrações PIX, PayPal, SumUp e MB WAY',
             'Lembretes por WhatsApp & E-mail',
             'Relatórios e Análise Financeira',
             'Suporte Prioritário 24/7',
@@ -898,9 +898,11 @@ export const PlansPage: React.FC = () => {
         }
 
         if (trialUsed) {
-            setErrorMessage(
-                'Este workspace já utilizou o período de teste gratuito de 14 dias.'
-            );
+            setSelectedPlan(plan);
+            setErrorMessage(null);
+            setTrialSuccess(false);
+            setTrialResult(null);
+            setIsTrialModalOpen(true);
             return;
         }
 
@@ -952,9 +954,31 @@ export const PlansPage: React.FC = () => {
             }
 
             if (trialUsed) {
-                setErrorMessage(
-                    'Este workspace já utilizou o período de teste gratuito de 14 dias.'
-                );
+                setIsProcessing(true);
+                setErrorMessage(null);
+
+                try {
+                    const selectedPlanForDatabase =
+                        PLAN_DATABASE_MAP[selectedPlan.id];
+
+                    const payment =
+                        await authService.startPaidSubscription(
+                            selectedPlanForDatabase,
+                            'paypal'
+                        );
+
+                    window.location.href = payment.approvalUrl;
+                    return;
+                } catch (error) {
+                    setErrorMessage(
+                        error instanceof Error
+                            ? error.message
+                            : 'Não foi possível iniciar o pagamento PayPal.'
+                    );
+                } finally {
+                    setIsProcessing(false);
+                }
+
                 return;
             }
 
@@ -1501,11 +1525,7 @@ export const PlansPage: React.FC = () => {
                             isProcessing ||
                             (
                                 isPaid &&
-                                (
-                                    trialUsed ||
-                                    trialIsActive ||
-                                    false
-                                )
+                                trialIsActive
                             );
 
                         return (
@@ -1680,7 +1700,7 @@ export const PlansPage: React.FC = () => {
 
                                                 <ShieldCheck className="w-4 h-4" />
 
-                                                Teste Já Utilizado
+                                                Continuar com PayPal
 
                                             </>
                                         ) : isPaid &&
@@ -1894,7 +1914,9 @@ export const PlansPage: React.FC = () => {
                 title={
                     trialSuccess
                         ? 'Período de teste ativado'
-                        : `Ativar ${selectedPlan?.name ?? 'Plano'}`
+                        : trialUsed
+                            ? `Continuar com ${selectedPlan?.name ?? 'Plano'}`
+                            : `Ativar ${selectedPlan?.name ?? 'Plano'}`
                 }
             >
 
@@ -2108,11 +2130,11 @@ export const PlansPage: React.FC = () => {
                                 <div>
 
                                     <strong className="block text-sm text-emerald-700 dark:text-emerald-300">
-                                        14 dias totalmente grátis
+                                        {trialUsed ? 'Assinatura mensal' : '14 dias totalmente grátis'}
                                     </strong>
 
                                     <span className="text-xs text-emerald-600/80 dark:text-emerald-400/80">
-                                        Acesso imediato ao plano.
+                                        {trialUsed ? 'Ative novamente o plano após o fim do trial.' : 'Acesso imediato ao plano.'}
                                     </span>
 
                                 </div>
@@ -2126,11 +2148,11 @@ export const PlansPage: React.FC = () => {
                                 <div>
 
                                     <strong className="block text-sm text-slate-800 dark:text-slate-200">
-                                        Nenhum pagamento agora
+                                        {trialUsed ? 'Pagamento seguro pelo PayPal' : 'Nenhum pagamento agora'}
                                     </strong>
 
                                     <span className="text-xs text-slate-500 dark:text-slate-400">
-                                        O período de teste começa imediatamente.
+                                        {trialUsed ? 'A cobrança será feita conforme a assinatura PayPal.' : 'O período de teste começa imediatamente.'}
                                     </span>
 
                                 </div>
@@ -2144,11 +2166,11 @@ export const PlansPage: React.FC = () => {
                                 <div>
 
                                     <strong className="block text-sm text-slate-800 dark:text-slate-200">
-                                        Após os 14 dias
+                                        {trialUsed ? 'Assinatura recorrente' : 'Após os 14 dias'}
                                     </strong>
 
                                     <span className="text-xs text-slate-500 dark:text-slate-400">
-                                        Sem pagamento ou subscrição, o workspace volta para o plano Starter.
+                                        {trialUsed ? 'O PayPal fará a cobrança mensal conforme a assinatura.' : 'Sem pagamento ou subscrição, o workspace volta para o plano Starter.'}
                                     </span>
 
                                 </div>
@@ -2217,15 +2239,19 @@ export const PlansPage: React.FC = () => {
 
                                         <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
 
-                                        Ativando 14 dias grátis...
+                                        {trialUsed ? 'Abrindo pagamento PayPal...' : 'Ativando 14 dias grátis...'}
 
                                     </>
                                 ) : (
                                     <>
 
-                                        <Gift className="w-4 h-4" />
+                                        {trialUsed ? (
+                                            <ShieldCheck className="w-4 h-4" />
+                                        ) : (
+                                            <Gift className="w-4 h-4" />
+                                        )}
 
-                                        Ativar 14 Dias Grátis
+                                        {trialUsed ? 'Continuar com PayPal' : 'Ativar 14 Dias Grátis'}
 
                                     </>
                                 )}
@@ -2241,4 +2267,4 @@ export const PlansPage: React.FC = () => {
 
         </div>
     );
-};
+}

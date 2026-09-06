@@ -107,7 +107,7 @@ export const PLAN_LIMITS = {
 
     pix: true,
     paypal: true,
-    stripe: true,
+    stripe: false,
     sumup: true,
 
     whatsappReminders: true,
@@ -139,7 +139,7 @@ export const PLAN_LIMITS = {
 
     pix: true,
     paypal: true,
-    stripe: true,
+    stripe: false,
     sumup: true,
 
     whatsappReminders: true,
@@ -1582,100 +1582,237 @@ export const authService = {
   // ==========================================================
 
   async selectPlan(
-    selectedPlan:
-      | 'pro'
-      | 'enterprise'
+    selectedPlan: 'pro' | 'enterprise'
   ): Promise<Workspace> {
-
-    // ==========================================================
-    // VALIDAR PLANO
-    // ==========================================================
-
-    const plan =
-      validateTrialPlan(
-        selectedPlan
-      );
-
-
-    // ==========================================================
-    // BUSCAR WORKSPACE
-    // ==========================================================
-
     const workspace =
       await this.getCurrentWorkspace();
 
-
     if (!workspace) {
       throw new Error(
-        'Nenhum workspace encontrado.'
+        'Usuário não possui workspace associado.'
       );
     }
 
-
-    // ==========================================================
-    // FREE + TRIAL DISPONÍVEL
-    // ==========================================================
-
-    if (
+    const currentPlan =
       normalizePlan(
         workspace.plan
-      ) === PLANS.FREE &&
-      workspace.trialUsed === false
-    ) {
-
-      const started =
-        await this.startTrial(
-          workspace.id,
-          plan
-        );
-
-
-      if (!started) {
-        throw new Error(
-          'Não foi possível iniciar o período de teste.'
-        );
-      }
-
-
-      // --------------------------------------------------------
-      // RECARREGAR DO BANCO
-      // --------------------------------------------------------
-
-      const updated =
-        await this.getCurrentWorkspace();
-
-
-      if (!updated) {
-        throw new Error(
-          'O período de teste foi iniciado, mas não foi possível atualizar o workspace.'
-        );
-      }
-
-
-      return updated;
-    }
-
-
-    // ==========================================================
-    // TRIAL JÁ USADO
-    // ==========================================================
+      );
 
     if (
-      workspace.trialUsed
+      currentPlan === selectedPlan
+    ) {
+      return workspace;
+    }
+
+    if (
+      currentPlan !== PLANS.FREE
     ) {
       throw new Error(
-        'O período de teste gratuito já foi utilizado. Para continuar com este plano, é necessário realizar o pagamento.'
+        'Não é possível alterar o plano enquanto existe um plano pago ativo.'
       );
     }
 
+    /*
+     * PRIMEIRA CONTRATAÇÃO:
+     *
+     * Free + trial nunca utilizado
+     * = inicia 14 dias de teste.
+     */
+    if (!workspace.trialUsed) {
+      return await this.startTrial(
+        workspace.id,
+        selectedPlan
+      );
+    }
 
-    // ==========================================================
-    // OUTRO CASO
-    // ==========================================================
-
+    /*
+     * TRIAL JÁ UTILIZADO:
+     *
+     * Não inicia outro trial.
+     * O fluxo deve passar pelo pagamento.
+     */
     throw new Error(
-      `Não é possível iniciar o plano ${plan} desta forma. Utilize o processo de pagamento.`
+      'O período de teste gratuito já foi utilizado. Para continuar com este plano, é necessário realizar o pagamento.'
     );
+  },
+
+  // ==========================================================
+  // INICIAR ASSINATURA PAGA
+  // ==========================================================
+
+  async startPaidSubscription(
+    selectedPlan: 'pro' | 'enterprise',
+    provider: 'paypal' = 'paypal'
+  ): Promise<{
+    provider: string;
+    subscriptionId: string;
+    approvalUrl: string;
+  }> {
+    const plan = validateTrialPlan(selectedPlan);
+
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error(
+        'O Supabase não está configurado.'
+      );
+    }
+
+    const {
+      data: sessionData,
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (
+      sessionError ||
+      !sessionData.session?.access_token
+    ) {
+      throw new Error(
+        'Sua sessão expirou. Faça login novamente.'
+      );
+    }
+
+    const currentWorkspace =
+      await this.getCurrentWorkspace();
+
+    if (!currentWorkspace?.id) {
+      throw new Error(
+        'Usuário não possui workspace associado.'
+      );
+    }
+
+    const workspaceId =
+      String(currentWorkspace.id).trim();
+
+    if (!isValidUUID(workspaceId)) {
+      throw new Error(
+        'O workspace atual possui um ID inválido.'
+      );
+    }
+
+    const currentPlan =
+      normalizePlan(
+        currentWorkspace.plan
+      );
+
+    if (currentPlan !== PLANS.FREE) {
+      throw new Error(
+        'O workspace já possui um plano pago ativo.'
+      );
+    }
+
+    if (!currentWorkspace.trialUsed) {
+      throw new Error(
+        'O período de teste gratuito ainda não foi utilizado.'
+      );
+    }
+
+    if (
+      currentWorkspace.trialEndsAt &&
+      new Date(
+        currentWorkspace.trialEndsAt
+      ).getTime() > Date.now()
+    ) {
+      throw new Error(
+        'O período de teste ainda está ativo.'
+      );
+    }
+
+    if (provider !== 'paypal') {
+      throw new Error(
+        'No momento, a contratação pós-trial está disponível pelo PayPal.'
+      );
+    }
+
+    const currency =
+      String(
+        currentWorkspace.currency || 'EUR'
+      )
+        .trim()
+        .toUpperCase();
+
+    if (
+      !['BRL', 'EUR', 'USD'].includes(
+        currency
+      )
+    ) {
+      throw new Error(
+        'A moeda do workspace não é suportada pelo PayPal.'
+      );
+    }
+
+    const {
+      data,
+      error,
+    } = await supabase.functions.invoke(
+      'create-paypal-subscription',
+      {
+        body: {
+          workspace_id:
+            workspaceId,
+          plan,
+          currency,
+        },
+      }
+    );
+
+    if (error) {
+      let message =
+        error.message ||
+        'Não foi possível iniciar a assinatura PayPal.';
+
+      try {
+        const context =
+          (error as any)?.context;
+
+        if (context) {
+          const response =
+            context instanceof Response
+              ? context
+              : null;
+
+          if (response) {
+            const payload =
+              await response
+                .clone()
+                .json()
+                .catch(() => null);
+
+            if (
+              payload?.error
+            ) {
+              message =
+                String(
+                  payload.error
+                );
+            }
+          }
+        }
+      } catch {
+        // Mantém a mensagem original.
+      }
+
+      throw new Error(message);
+    }
+
+    if (
+      !data?.subscription_id ||
+      !data?.approval_url
+    ) {
+      throw new Error(
+        'O PayPal não retornou os dados necessários para continuar.'
+      );
+    }
+
+    return {
+      provider: 'paypal',
+      subscriptionId:
+        String(
+          data.subscription_id
+        ),
+      approvalUrl:
+        String(
+          data.approval_url
+        ),
+    };
   },
 
   // ==========================================================
