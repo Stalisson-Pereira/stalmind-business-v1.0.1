@@ -8,45 +8,57 @@ const corsHeaders = {
 };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get(
-  "SUPABASE_SERVICE_ROLE_KEY",
-)!;
+const SUPABASE_SERVICE_ROLE_KEY =
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_ANON_KEY =
+  Deno.env.get("SUPABASE_ANON_KEY") || "";
 
-const MERCADOPAGO_ACCESS_TOKEN = Deno.env.get(
-  "MERCADOPAGO_ACCESS_TOKEN"
-);
+const MERCADOPAGO_ACCESS_TOKEN =
+  Deno.env.get("MERCADOPAGO_ACCESS_TOKEN");
 
 const supabase = createClient(
   SUPABASE_URL,
-  SUPABASE_SERVICE_ROLE_KEY
+  SUPABASE_SERVICE_ROLE_KEY,
 );
 
 function response(
   body: unknown,
-  status = 200
-) {
+  status = 200,
+): Response {
   return new Response(
     JSON.stringify(body),
     {
       status,
       headers: {
         ...corsHeaders,
-        "Content-Type": "application/json",
+        "Content-Type":
+          "application/json",
       },
-    }
+    },
+  );
+}
+
+function isValidUUID(
+  value: string,
+): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
   );
 }
 
 function normalizePlan(
-  value: unknown
+  value: unknown,
 ): "pro" | "enterprise" {
   const plan = String(value || "")
     .trim()
     .toLowerCase();
 
-  if (plan !== "pro" && plan !== "enterprise") {
+  if (
+    plan !== "pro" &&
+    plan !== "enterprise"
+  ) {
     throw new Error(
-      "Plano inválido. Use pro ou enterprise."
+      "Plano inválido. Use pro ou enterprise.",
     );
   }
 
@@ -54,21 +66,29 @@ function normalizePlan(
 }
 
 function getExpectedAmount(
-  plan: "pro" | "enterprise"
-) {
-  if (plan === "pro") {
-    return 39.90;
-  }
-
-  return 99.90;
+  plan: "pro" | "enterprise",
+): number {
+  return plan === "pro"
+    ? 39.9
+    : 99.9;
 }
 
-function isValidUUID(
-  value: string
+function getExternalReferencePlan(
+  value: string,
 ) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value
-  );
+  if (
+    value.includes("_enterprise_")
+  ) {
+    return "enterprise" as const;
+  }
+
+  if (
+    value.includes("_pro_")
+  ) {
+    return "pro" as const;
+  }
+
+  return null;
 }
 
 Deno.serve(async (req) => {
@@ -81,121 +101,153 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return response(
       {
-        error: "Método não permitido.",
+        error:
+          "Método não permitido.",
       },
-      405
+      405,
     );
   }
 
   try {
-    if (!MERCADOPAGO_ACCESS_TOKEN) {
-      console.error(
-        "[create-mercadopago-pix] MERCADOPAGO_ACCESS_TOKEN não configurado."
-      );
-
+    if (
+      !MERCADOPAGO_ACCESS_TOKEN
+    ) {
       return response(
         {
           error:
             "Mercado Pago não está configurado no servidor.",
         },
-        500
+        500,
       );
     }
 
-    // ========================================================
-    // AUTENTICAÇÃO
-    // ========================================================
+    /*
+     * ==========================================================
+     * AUTENTICAÇÃO
+     * ==========================================================
+     */
 
     const authorization =
-      req.headers.get("Authorization");
+      req.headers.get(
+        "Authorization",
+      );
 
     if (!authorization) {
       return response(
         {
-          error: "Usuário não autenticado.",
+          error:
+            "Usuário não autenticado.",
         },
-        401
+        401,
       );
     }
 
     const accessToken =
       authorization.replace(
         /^Bearer\s+/i,
-        ""
-      );
+        "",
+      ).trim();
 
     if (!accessToken) {
       return response(
         {
-          error: "Token de autenticação inválido.",
+          error:
+            "Token de autenticação inválido.",
         },
-        401
+        401,
       );
     }
 
-    const userClient = createClient(
-      SUPABASE_URL,
-      Deno.env.get("SUPABASE_ANON_KEY") || ""
-    );
+    const userClient =
+      createClient(
+        SUPABASE_URL,
+        SUPABASE_ANON_KEY,
+        {
+          auth: {
+            autoRefreshToken: false,
+            persistSession: false,
+          },
+        },
+      );
 
     const {
-      data: {
-        user,
-      },
+      data: userData,
       error: userError,
     } =
       await userClient.auth.getUser(
-        accessToken
+        accessToken,
       );
 
     if (
       userError ||
-      !user
+      !userData?.user
     ) {
       return response(
         {
           error:
             "Sessão inválida ou expirada.",
         },
-        401
+        401,
       );
     }
 
-    // ========================================================
-    // BODY
-    // ========================================================
+    const user =
+      userData.user;
 
-    const body = await req.json();
+    /*
+     * ==========================================================
+     * BODY
+     * ==========================================================
+     */
+
+    let body: Record<
+      string,
+      unknown
+    >;
+
+    try {
+      body = await req.json();
+    } catch {
+      return response(
+        {
+          error:
+            "Corpo da requisição inválido.",
+        },
+        400,
+      );
+    }
 
     const workspaceId =
       String(
-        body.workspace_id || ""
+        body.workspace_id || "",
       ).trim();
 
     const selectedPlan =
       normalizePlan(
-        body.plan
+        body.plan,
       );
 
     const payerEmail =
       String(
         body.email ||
           user.email ||
-          ""
+          "",
       )
         .trim()
         .toLowerCase();
 
     if (
       !workspaceId ||
-      !isValidUUID(workspaceId)
+      !isValidUUID(
+        workspaceId,
+      )
     ) {
       return response(
         {
           error:
             "workspace_id inválido.",
         },
-        400
+        400,
       );
     }
 
@@ -205,37 +257,41 @@ Deno.serve(async (req) => {
           error:
             "Não foi possível identificar o e-mail do comprador.",
         },
-        400
+        400,
       );
     }
 
-    // ========================================================
-    // VERIFICAR MEMBRO DO WORKSPACE
-    // ========================================================
+    /*
+     * ==========================================================
+     * VALIDAR MEMBRO
+     * ==========================================================
+     */
 
     const {
       data: member,
       error: memberError,
     } =
       await supabase
-        .from("workspace_members")
+        .from(
+          "workspace_members",
+        )
         .select(
-          "user_id, workspace_id, role"
+          "user_id, workspace_id, role",
         )
         .eq(
           "user_id",
-          user.id
+          user.id,
         )
         .eq(
           "workspace_id",
-          workspaceId
+          workspaceId,
         )
         .maybeSingle();
 
     if (memberError) {
       console.error(
-        "[create-mercadopago-pix] Erro workspace_members:",
-        memberError
+        "[create-mercadopago-pix] memberError:",
+        memberError,
       );
 
       return response(
@@ -243,7 +299,7 @@ Deno.serve(async (req) => {
           error:
             "Não foi possível verificar o workspace.",
         },
-        500
+        500,
       );
     }
 
@@ -253,13 +309,119 @@ Deno.serve(async (req) => {
           error:
             "Você não possui acesso a este workspace.",
         },
-        403
+        403,
       );
     }
 
-    // ========================================================
-    // BUSCAR PLANO NO BANCO
-    // ========================================================
+    /*
+     * ==========================================================
+     * WORKSPACE
+     * ==========================================================
+     */
+
+    const {
+      data: workspace,
+      error: workspaceError,
+    } =
+      await supabase
+        .from("workspaces")
+        .select(
+          "id, plan, trial_used, trial_ends_at, currency",
+        )
+        .eq(
+          "id",
+          workspaceId,
+        )
+        .maybeSingle();
+
+    if (workspaceError) {
+      console.error(
+        "[create-mercadopago-pix] workspaceError:",
+        workspaceError,
+      );
+
+      return response(
+        {
+          error:
+            "Não foi possível carregar o workspace.",
+        },
+        500,
+      );
+    }
+
+    if (!workspace) {
+      return response(
+        {
+          error:
+            "Workspace não encontrado.",
+        },
+        404,
+      );
+    }
+
+    /*
+     * ==========================================================
+     * O PIX DESTE ENDPOINT É PARA CONTRATAÇÃO DO PLANO.
+     * O PLANO ATUAL PRECISA SER FREE.
+     * ==========================================================
+     */
+
+    if (
+      String(
+        workspace.plan || "free",
+      ).toLowerCase() !==
+      "free"
+    ) {
+      return response(
+        {
+          error:
+            "O workspace já possui um plano pago ativo.",
+        },
+        409,
+      );
+    }
+
+    /*
+     * ==========================================================
+     * TRIAL:
+     *
+     * O PIX pode ser usado somente quando o trial terminou.
+     * ==========================================================
+     */
+
+    if (
+      workspace.trial_used !== true
+    ) {
+      return response(
+        {
+          error:
+            "O período de teste gratuito ainda não foi utilizado.",
+        },
+        409,
+      );
+    }
+
+    if (
+      workspace.trial_ends_at &&
+      new Date(
+        workspace.trial_ends_at,
+      ).getTime() >
+        Date.now()
+    ) {
+      return response(
+        {
+          error:
+            "O período de teste ainda está ativo.",
+        },
+        409,
+      );
+    }
+
+    /*
+     * ==========================================================
+     * PLANO MERCADO PAGO
+     * ==========================================================
+     */
 
     const {
       data: planRow,
@@ -267,45 +429,55 @@ Deno.serve(async (req) => {
     } =
       await supabase
         .from(
-          "subscription_payment_plans"
+          "subscription_payment_plans",
         )
         .select(
-          "id, plan, provider, currency, amount, billing_interval"
+          `
+            id,
+            plan,
+            provider,
+            currency,
+            amount,
+            billing_interval,
+            provider_product_id,
+            provider_plan_id,
+            is_active
+          `,
         )
         .eq(
           "plan",
-          selectedPlan
+          selectedPlan,
         )
         .eq(
           "provider",
-          "mercado_pago"
+          "mercado_pago",
         )
         .eq(
           "currency",
-          "BRL"
+          "BRL",
         )
         .eq(
           "billing_interval",
-          "month"
+          "month",
         )
         .eq(
           "is_active",
-          true
+          true,
         )
         .maybeSingle();
 
     if (planError) {
       console.error(
-        "[create-mercadopago-pix] Erro plano:",
-        planError
+        "[create-mercadopago-pix] planError:",
+        planError,
       );
 
       return response(
         {
           error:
-            "Erro ao consultar o plano.",
+            "Erro ao consultar o plano Mercado Pago.",
         },
-        500
+        500,
       );
     }
 
@@ -315,44 +487,48 @@ Deno.serve(async (req) => {
           error:
             "Plano Mercado Pago não configurado.",
         },
-        404
+        404,
       );
     }
 
     const expectedAmount =
       getExpectedAmount(
-        selectedPlan
+        selectedPlan,
       );
 
     const databaseAmount =
       Number(
-        planRow.amount
+        planRow.amount,
       );
 
     if (
-      databaseAmount !==
-      expectedAmount
+      Math.abs(
+        databaseAmount -
+          expectedAmount,
+      ) > 0.001
     ) {
       console.error(
         "[create-mercadopago-pix] Valor divergente:",
         {
           databaseAmount,
           expectedAmount,
-        }
+        },
       );
 
       return response(
         {
           error:
-            "O valor do plano no banco está divergente da configuração.",
+            "O valor do plano no banco está divergente.",
         },
-        500
+        500,
       );
     }
 
-    // ========================================================
-    // REFERÊNCIA ÚNICA
-    // ========================================================
+    /*
+     * ==========================================================
+     * REFERÊNCIA ÚNICA
+     * ==========================================================
+     */
 
     const externalReference =
       `stalmind_${workspaceId}_${selectedPlan}_${crypto.randomUUID()}`;
@@ -360,9 +536,11 @@ Deno.serve(async (req) => {
     const idempotencyKey =
       crypto.randomUUID();
 
-    // ========================================================
-    // CRIAR PAGAMENTO MERCADO PAGO
-    // ========================================================
+    /*
+     * ==========================================================
+     * CRIAR PIX
+     * ==========================================================
+     */
 
     const mpResponse =
       await fetch(
@@ -389,7 +567,7 @@ Deno.serve(async (req) => {
               expectedAmount,
 
             description:
-              `StalMind ${selectedPlan.toUpperCase()} - assinatura mensal`,
+              `StalMind ${selectedPlan.toUpperCase()} - pagamento do plano`,
 
             payment_method_id:
               "pix",
@@ -402,7 +580,7 @@ Deno.serve(async (req) => {
                 payerEmail,
             },
           }),
-        }
+        },
       );
 
     const mpData =
@@ -410,61 +588,94 @@ Deno.serve(async (req) => {
 
     if (!mpResponse.ok) {
       console.error(
-        "[create-mercadopago-pix] Mercado Pago:",
-        mpData
+        "[create-mercadopago-pix] Mercado Pago error:",
+        mpData,
       );
 
       return response(
         {
           error:
-            "O Mercado Pago recusou a criação do pagamento.",
+            "O Mercado Pago recusou a criação do PIX.",
+
           details:
             mpData?.message ||
             mpData?.error ||
             null,
         },
-        502
+        502,
       );
     }
 
-    // ========================================================
-    // PIX
-    // ========================================================
+    /*
+     * ==========================================================
+     * DADOS PIX
+     * ==========================================================
+     */
 
-    const transactionDetails =
-      mpData?.point_of_interaction
+    const transactionData =
+      mpData
+        ?.point_of_interaction
         ?.transaction_data;
 
     const qrCode =
-      transactionDetails?.qr_code ||
+      transactionData?.qr_code ||
       null;
 
     const qrCodeBase64 =
-      transactionDetails?.qr_code_base64 ||
+      transactionData?.qr_code_base64 ||
       null;
 
     const ticketUrl =
-      transactionDetails?.ticket_url ||
+      transactionData?.ticket_url ||
       null;
 
     if (!qrCode) {
-      console.error(
-        "[create-mercadopago-pix] Mercado Pago não retornou QR Code:",
-        mpData
-      );
-
       return response(
         {
           error:
-            "O Mercado Pago não retornou os dados do PIX.",
+            "O Mercado Pago não retornou o QR Code PIX.",
         },
-        502
+        502,
       );
     }
 
-    // ========================================================
-    // REGISTRAR PAGAMENTO PENDENTE
-    // ========================================================
+    /*
+     * ==========================================================
+     * REGISTRAR PAYMENT
+     * ==========================================================
+     */
+
+    const notes =
+      JSON.stringify({
+        provider:
+          "mercado_pago",
+
+        provider_payment_id:
+          String(
+            mpData.id,
+          ),
+
+        external_reference:
+          externalReference,
+
+        plan:
+          selectedPlan,
+
+        currency:
+          "BRL",
+
+        payer_email:
+          payerEmail,
+
+        payment_type:
+          "pix",
+
+        billing:
+          "one_time",
+
+        created_at:
+          new Date().toISOString(),
+      });
 
     const {
       data: payment,
@@ -485,62 +696,57 @@ Deno.serve(async (req) => {
           status:
             "pending",
 
+          payment_date:
+            null,
+
           reference:
             String(
-              mpData.id
+              mpData.id,
             ),
 
-          notes:
-            JSON.stringify({
-              provider:
-                "mercado_pago",
-
-              provider_payment_id:
-                mpData.id,
-
-              external_reference:
-                externalReference,
-
-              plan:
-                selectedPlan,
-
-              currency:
-                "BRL",
-
-              payer_email:
-                payerEmail,
-            }),
+          notes,
 
           created_by:
             user.id,
         })
         .select(
-          "id, workspace_id, amount, payment_method, status, reference, created_at"
+          `
+            id,
+            workspace_id,
+            amount,
+            payment_method,
+            status,
+            reference,
+            created_at
+          `,
         )
         .single();
 
     if (paymentError) {
       console.error(
-        "[create-mercadopago-pix] Erro ao registrar payment:",
-        paymentError
+        "[create-mercadopago-pix] paymentError:",
+        paymentError,
       );
 
-      // O pagamento já foi criado no Mercado Pago.
-      // Não escondemos esse fato.
       return response(
         {
           error:
             "PIX criado no Mercado Pago, mas não foi possível registrar o pagamento no StalMind.",
+
           mercadopago_payment_id:
-            mpData.id,
+            String(
+              mpData.id,
+            ),
         },
-        500
+        500,
       );
     }
 
-    // ========================================================
-    // RESPOSTA
-    // ========================================================
+    /*
+     * ==========================================================
+     * RESPOSTA
+     * ==========================================================
+     */
 
     return response({
       success: true,
@@ -553,7 +759,9 @@ Deno.serve(async (req) => {
           "mercado_pago",
 
         provider_payment_id:
-          mpData.id,
+          String(
+            mpData.id,
+          ),
 
         status:
           mpData.status,
@@ -584,8 +792,8 @@ Deno.serve(async (req) => {
     });
   } catch (error) {
     console.error(
-      "[create-mercadopago-pix] Erro inesperado:",
-      error
+      "[create-mercadopago-pix] Unexpected error:",
+      error,
     );
 
     return response(
@@ -595,7 +803,7 @@ Deno.serve(async (req) => {
             ? error.message
             : "Erro interno ao criar PIX.",
       },
-      500
+      500,
     );
   }
 });

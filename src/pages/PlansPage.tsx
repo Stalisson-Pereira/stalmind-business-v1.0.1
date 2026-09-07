@@ -26,14 +26,10 @@ export interface PlanTier {
     id: 'Starter' | 'Pro' | 'Enterprise';
     name: string;
     tagline: string;
-
     monthlyPrice: number;
-
     features: string[];
-
     cta: string;
     color: string;
-
     popular?: boolean;
 }
 
@@ -91,6 +87,8 @@ interface SubscriptionData {
     cancel_at_period_end?: boolean | null;
     cancelled_at?: string | null;
     cancellation_reason?: string | null;
+
+    created_at?: string | null;
 }
 
 interface LocalTrialState {
@@ -101,40 +99,12 @@ interface LocalTrialState {
 
 interface TrialResult {
     success: boolean;
-
     workspace_id: string;
-
     plan: DatabasePlan;
-
     trial_used: boolean;
-
     trial_started_at: string | null;
-
     trial_ends_at: string | null;
-
     days: number;
-}
-
-interface TrialFunctionResponse {
-    success?: boolean;
-
-    workspace_id?: string;
-
-    id?: string;
-
-    plan?: DatabasePlan;
-
-    trial_used?: boolean;
-
-    trial_started_at?: string | null;
-
-    trial_ends_at?: string | null;
-
-    days?: number;
-
-    message?: string;
-
-    error?: string;
 }
 
 interface DatabasePrice {
@@ -171,30 +141,8 @@ const PLAN_DATABASE_MAP: Record<
 };
 
 /* ============================================================
-   PREÇOS EXATOS DO BANCO
+   PREÇOS EXATOS DO PAYPAL
 ============================================================ */
-
-/*
-    Estes valores correspondem à tabela fornecida:
-
-    ENTERPRISE
-    BRL = 99.90
-    EUR = 49.90
-    USD = 53.90
-
-    PRO
-    BRL = 39.90
-    EUR = 14.90
-    USD = 15.90
-
-    Provider:
-    PayPal
-
-    Billing:
-    month
-
-    Não existe preço anual na tabela atual.
-*/
 
 const DATABASE_PRICES: DatabasePrice[] = [
     {
@@ -204,10 +152,8 @@ const DATABASE_PRICES: DatabasePrice[] = [
         currency: 'BRL',
         amount: 99.90,
         billing_interval: 'month',
-        provider_product_id:
-            'PROD-14L75980AN859381C',
-        provider_plan_id:
-            'P-1PS94836TB709693PNKDR2CY',
+        provider_product_id: 'PROD-14L75980AN859381C',
+        provider_plan_id: 'P-1PS94836TB709693PNKDR2CY',
         is_active: true,
     },
 
@@ -218,10 +164,8 @@ const DATABASE_PRICES: DatabasePrice[] = [
         currency: 'EUR',
         amount: 49.90,
         billing_interval: 'month',
-        provider_product_id:
-            'PROD-14L75980AN859381C',
-        provider_plan_id:
-            'P-1YN06266KS453381TNKDR2CY',
+        provider_product_id: 'PROD-14L75980AN859381C',
+        provider_plan_id: 'P-1YN06266KS453381TNKDR2CY',
         is_active: true,
     },
 
@@ -232,10 +176,8 @@ const DATABASE_PRICES: DatabasePrice[] = [
         currency: 'USD',
         amount: 53.90,
         billing_interval: 'month',
-        provider_product_id:
-            'PROD-14L75980AN859381C',
-        provider_plan_id:
-            'P-7M619305LC1406845NKDR2DA',
+        provider_product_id: 'PROD-14L75980AN859381C',
+        provider_plan_id: 'P-7M619305LC1406845NKDR2DA',
         is_active: true,
     },
 
@@ -246,10 +188,8 @@ const DATABASE_PRICES: DatabasePrice[] = [
         currency: 'BRL',
         amount: 39.90,
         billing_interval: 'month',
-        provider_product_id:
-            'PROD-14L75980AN859381C',
-        provider_plan_id:
-            'P-25W027151W9805218NKDR2CI',
+        provider_product_id: 'PROD-14L75980AN859381C',
+        provider_plan_id: 'P-25W027151W9805218NKDR2CI',
         is_active: true,
     },
 
@@ -260,10 +200,8 @@ const DATABASE_PRICES: DatabasePrice[] = [
         currency: 'EUR',
         amount: 14.90,
         billing_interval: 'month',
-        provider_product_id:
-            'PROD-14L75980AN859381C',
-        provider_plan_id:
-            'P-7S307797W21212118NKDR2CQ',
+        provider_product_id: 'PROD-14L75980AN859381C',
+        provider_plan_id: 'P-7S307797W21212118NKDR2CQ',
         is_active: true,
     },
 
@@ -274,10 +212,8 @@ const DATABASE_PRICES: DatabasePrice[] = [
         currency: 'USD',
         amount: 15.90,
         billing_interval: 'month',
-        provider_product_id:
-            'PROD-14L75980AN859381C',
-        provider_plan_id:
-            'P-31H1358714108790CNKDR2CQ',
+        provider_product_id: 'PROD-14L75980AN859381C',
+        provider_plan_id: 'P-31H1358714108790CNKDR2CQ',
         is_active: true,
     },
 ];
@@ -289,14 +225,10 @@ const DATABASE_PRICES: DatabasePrice[] = [
 const PLAN_TIERS: PlanTier[] = [
     {
         id: 'Starter',
-
         name: 'Starter / Gratuito',
-
         tagline:
             'Ideal para freelancers e negócios em fase inicial.',
-
         monthlyPrice: 0,
-
         features: [
             'Até 10 clientes cadastrados',
             'Assistente IA (100 mensagens/mês)',
@@ -305,24 +237,17 @@ const PLAN_TIERS: PlanTier[] = [
             'Notificações por E-mail',
             'Suporte via ticket',
         ],
-
         cta: 'Começar Grátis',
-
         color: 'slate',
     },
 
     {
         id: 'Pro',
-
         name: 'Pro / Profissional',
-
         tagline:
             'Para consultores, agências e PMEs que buscam escala com IA.',
-
         monthlyPrice: 0,
-
         popular: true,
-
         features: [
             'Clientes e orçamentos ilimitados',
             'Assistente IA Ilimitado (Gemini 2.5/3 Pro)',
@@ -332,22 +257,16 @@ const PLAN_TIERS: PlanTier[] = [
             'Relatórios e Análise Financeira',
             'Suporte Prioritário 24/7',
         ],
-
         cta: 'Ativar Plano Pro',
-
         color: 'indigo',
     },
 
     {
         id: 'Enterprise',
-
         name: 'Enterprise / Negócios',
-
         tagline:
             'Para equipas e empresas com altas demandas de automatização.',
-
         monthlyPrice: 0,
-
         features: [
             'Tudo incluído no Plano Pro',
             'Múltiplas sub-contas e gestão de permissões',
@@ -357,9 +276,7 @@ const PLAN_TIERS: PlanTier[] = [
             'Gerente de Conta Dedicado',
             'SLA de suporte garantido em 1h',
         ],
-
         cta: 'Ativar Enterprise',
-
         color: 'violet',
     },
 ];
@@ -369,12 +286,9 @@ const PLAN_TIERS: PlanTier[] = [
 ============================================================ */
 
 export const PlansPage: React.FC = () => {
-    const {
-        workspace,
-        updateWorkspace,
-    } = useAuth();
+    const { workspace } = useAuth();
 
-    const [billingCycle, setBillingCycle] =
+    const [billingCycle] =
         useState<BillingCycle>('monthly');
 
     const [currency, setCurrency] =
@@ -442,7 +356,7 @@ export const PlansPage: React.FC = () => {
         'monthly';
 
     /* ============================================================
-       MOEDA DO WORKSPACE
+       MOEDA
     ============================================================ */
 
     useEffect(() => {
@@ -459,6 +373,7 @@ export const PlansPage: React.FC = () => {
             setCurrency(
                 workspaceCurrency as Currency
             );
+
             return;
         }
 
@@ -487,15 +402,9 @@ export const PlansPage: React.FC = () => {
 
     useEffect(() => {
         setLocalTrial({
-            used: Boolean(
-                databaseTrialUsed
-            ),
-
-            startedAt:
-                databaseTrialStartedAt,
-
-            endsAt:
-                databaseTrialEndsAt,
+            used: Boolean(databaseTrialUsed),
+            startedAt: databaseTrialStartedAt,
+            endsAt: databaseTrialEndsAt,
         });
     }, [
         databaseTrialUsed,
@@ -509,16 +418,10 @@ export const PlansPage: React.FC = () => {
 
     useEffect(() => {
         /*
-            A tabela atual possui somente:
-
-            billing_interval = month
-
-            Portanto o frontend não oferece
-            faturação anual.
-        */
-
-        setBillingCycle('monthly');
-    }, [databaseBillingCycle]);
+         * A configuração comercial atual é exclusivamente mensal.
+         */
+        void billingCycle;
+    }, [billingCycle, databaseBillingCycle]);
 
     /* ============================================================
        CARREGAR SUBSCRIPTION
@@ -598,7 +501,7 @@ export const PlansPage: React.FC = () => {
             }
         };
 
-        loadSubscription();
+        void loadSubscription();
 
         return () => {
             cancelled = true;
@@ -627,9 +530,8 @@ export const PlansPage: React.FC = () => {
     const trialIsActive =
         Boolean(trialEndsAt) &&
         new Date(
-            trialEndsAt as string
-        ).getTime() >
-            Date.now();
+            trialEndsAt
+        ).getTime() > Date.now();
 
     /* ============================================================
        PLANO ATUAL
@@ -659,12 +561,14 @@ export const PlansPage: React.FC = () => {
     ============================================================ */
 
     const subscriptionIsTrialing =
-        subscription?.status ===
-        'trialing';
+        String(
+            subscription?.status ?? ''
+        ).toLowerCase() === 'trialing';
 
     const subscriptionIsActive =
-        subscription?.status ===
-        'active';
+        String(
+            subscription?.status ?? ''
+        ).toLowerCase() === 'active';
 
     /* ============================================================
        DIAS RESTANTES
@@ -740,7 +644,7 @@ export const PlansPage: React.FC = () => {
     };
 
     /* ============================================================
-       PREÇO ATUAL
+       PREÇO
     ============================================================ */
 
     const getPlanPrice = (
@@ -763,7 +667,11 @@ export const PlansPage: React.FC = () => {
         }
 
         return new Intl.NumberFormat(
-            'pt-PT',
+            currency === 'BRL'
+                ? 'pt-BR'
+                : currency === 'USD'
+                    ? 'en-US'
+                    : 'pt-PT',
             {
                 style: 'currency',
                 currency:
@@ -777,28 +685,7 @@ export const PlansPage: React.FC = () => {
     };
 
     /* ============================================================
-       SÍMBOLO DA MOEDA
-    ============================================================ */
-
-    const getCurrencyLabel =
-        () => {
-            switch (
-                currency
-            ) {
-                case 'BRL':
-                    return 'R$';
-
-                case 'USD':
-                    return '$';
-
-                case 'EUR':
-                default:
-                    return '€';
-            }
-        };
-
-    /* ============================================================
-       NOTIFICAÇÃO
+       NOTIFICAÇÃO DE TRIAL
     ============================================================ */
 
     const createTrialNotification = (
@@ -858,7 +745,7 @@ export const PlansPage: React.FC = () => {
     };
 
     /* ============================================================
-       INICIAR TRIAL
+       INICIAR / CONTINUAR PLANO
     ============================================================ */
 
     const handleStartTrial = async (
@@ -868,34 +755,80 @@ export const PlansPage: React.FC = () => {
             setErrorMessage(
                 'Não foi possível identificar o workspace atual.'
             );
+
             return;
         }
+
+        /* --------------------------------------------------------
+           STARTER
+        -------------------------------------------------------- */
 
         if (
             plan.id ===
             'Starter'
         ) {
-            await handleStarterPlan();
+            /*
+             * O plano Free não é alterado diretamente pelo frontend.
+             *
+             * O downgrade automático para Free é responsabilidade
+             * do backend/RPC quando um trial termina sem pagamento.
+             *
+             * Isso evita contornar as regras de segurança do
+             * authService e alterar workspace.plan diretamente.
+             */
+
+            if (
+                currentPlanId ===
+                'Starter'
+            ) {
+                return;
+            }
+
+            if (trialIsActive) {
+                setErrorMessage(
+                    'O período de teste ainda está ativo. Aguarde o término ou conclua a contratação do plano.'
+                );
+
+                return;
+            }
+
+            setErrorMessage(
+                'O Plano Starter será aplicado automaticamente quando não existir uma subscrição paga ativa.'
+            );
+
             return;
         }
 
+        /* --------------------------------------------------------
+           VALIDAR PLANO PAGO
+        -------------------------------------------------------- */
+
         if (
             plan.id !== 'Pro' &&
-            plan.id !==
-                'Enterprise'
+            plan.id !== 'Enterprise'
         ) {
             setErrorMessage(
                 'Plano inválido.'
             );
+
             return;
         }
+
+        /* --------------------------------------------------------
+           TRIAL ATIVO
+        -------------------------------------------------------- */
 
         if (trialIsActive) {
             setErrorMessage(
                 'Este workspace já possui um período de teste ativo.'
             );
+
             return;
         }
+
+        /* --------------------------------------------------------
+           TRIAL JÁ UTILIZADO
+        -------------------------------------------------------- */
 
         if (trialUsed) {
             setSelectedPlan(plan);
@@ -903,32 +836,27 @@ export const PlansPage: React.FC = () => {
             setTrialSuccess(false);
             setTrialResult(null);
             setIsTrialModalOpen(true);
+
             return;
         }
 
-        setSelectedPlan(
-            plan
-        );
+        /* --------------------------------------------------------
+           PRIMEIRO TRIAL
+        -------------------------------------------------------- */
 
-        setErrorMessage(
-            null
-        );
+        setSelectedPlan(plan);
 
-        setTrialSuccess(
-            false
-        );
+        setErrorMessage(null);
 
-        setTrialResult(
-            null
-        );
+        setTrialSuccess(false);
 
-        setIsTrialModalOpen(
-            true
-        );
+        setTrialResult(null);
+
+        setIsTrialModalOpen(true);
     };
 
     /* ============================================================
-       CONFIRMAR TRIAL
+       CONFIRMAR TRIAL / PAGAMENTO
     ============================================================ */
 
     const confirmStartTrial =
@@ -940,6 +868,7 @@ export const PlansPage: React.FC = () => {
                 setErrorMessage(
                     'Não foi possível identificar o workspace atual.'
                 );
+
                 return;
             }
 
@@ -950,16 +879,25 @@ export const PlansPage: React.FC = () => {
                 setErrorMessage(
                     'Plano inválido.'
                 );
+
                 return;
             }
 
+            /* ====================================================
+               TRIAL JÁ UTILIZADO
+               → PAGAMENTO PAYPAL
+            ==================================================== */
+
             if (trialUsed) {
                 setIsProcessing(true);
+
                 setErrorMessage(null);
 
                 try {
                     const selectedPlanForDatabase =
-                        PLAN_DATABASE_MAP[selectedPlan.id];
+                        PLAN_DATABASE_MAP[
+                            selectedPlan.id
+                        ];
 
                     const payment =
                         await authService.startPaidSubscription(
@@ -967,9 +905,35 @@ export const PlansPage: React.FC = () => {
                             'paypal'
                         );
 
-                    window.location.href = payment.approvalUrl;
+                    if (
+                        !payment ||
+                        !payment.approvalUrl
+                    ) {
+                        throw new Error(
+                            'O PayPal não retornou o endereço de aprovação da assinatura.'
+                        );
+                    }
+
+                    /*
+                     * O backend já criou a assinatura PayPal.
+                     *
+                     * O workspace NÃO deve ser alterado para Pro
+                     * manualmente aqui.
+                     *
+                     * A ativação definitiva acontece através do
+                     * paypal-webhook.
+                     */
+
+                    window.location.href =
+                        payment.approvalUrl;
+
                     return;
                 } catch (error) {
+                    console.error(
+                        '[PlansPage] Erro ao iniciar pagamento PayPal:',
+                        error
+                    );
+
                     setErrorMessage(
                         error instanceof Error
                             ? error.message
@@ -982,31 +946,48 @@ export const PlansPage: React.FC = () => {
                 return;
             }
 
+            /* ====================================================
+               TRIAL ATIVO
+            ==================================================== */
+
             if (trialIsActive) {
                 setErrorMessage(
                     'Este workspace já possui um período de teste ativo.'
                 );
+
                 return;
             }
 
+            /* ====================================================
+               INICIAR TRIAL
+            ==================================================== */
+
             setIsProcessing(true);
+
             setErrorMessage(null);
 
             try {
                 const selectedPlanForDatabase =
-                    PLAN_DATABASE_MAP[selectedPlan.id];
+                    PLAN_DATABASE_MAP[
+                        selectedPlan.id
+                    ];
 
                 /*
                  * IMPORTANTE:
-                 * O trial não é um pagamento.
-                 * Portanto NÃO chamamos a Edge Function
-                 * start-paid-trial e NÃO usamos updateWorkspace
-                 * para alterar o plano.
                  *
-                 * authService.selectPlan() já chama a RPC
-                 * start_workspace_trial, que é a operação segura
-                 * responsável por alterar o plano e registrar o trial.
+                 * O trial é gratuito.
+                 *
+                 * Não chamamos:
+                 *
+                 * - create-paypal-subscription
+                 * - start-paid-trial
+                 * - updateWorkspace({ plan })
+                 *
+                 * O authService.selectPlan() utiliza a RPC
+                 * start_workspace_trial(), que é a operação segura
+                 * responsável por iniciar o período de teste.
                  */
+
                 const updatedWorkspace =
                     await authService.selectPlan(
                         selectedPlanForDatabase
@@ -1019,7 +1000,8 @@ export const PlansPage: React.FC = () => {
                 }
 
                 if (
-                    updatedWorkspace.id !== workspaceId
+                    updatedWorkspace.id !==
+                    workspaceId
                 ) {
                     throw new Error(
                         'O workspace retornado pelo servidor não corresponde ao workspace atual.'
@@ -1027,7 +1009,9 @@ export const PlansPage: React.FC = () => {
                 }
 
                 if (
-                    updatedWorkspace.plan !==
+                    String(
+                        updatedWorkspace.plan
+                    ).toLowerCase() !==
                     selectedPlanForDatabase
                 ) {
                     throw new Error(
@@ -1068,12 +1052,42 @@ export const PlansPage: React.FC = () => {
                 ================================================== */
 
                 setSubscription({
-                    ...subscription,
-                    workspace_id: workspaceId,
-                    plan: selectedPlanForDatabase,
-                    status: 'trialing',
-                    trial_ends_at: endsAt,
-                    provider: null,
+                    id:
+                        subscription?.id,
+
+                    workspace_id:
+                        workspaceId,
+
+                    plan:
+                        selectedPlanForDatabase,
+
+                    status:
+                        'trialing',
+
+                    trial_ends_at:
+                        endsAt,
+
+                    current_period_start:
+                        null,
+
+                    current_period_end:
+                        null,
+
+                    provider:
+                        null,
+
+                    cancel_at_period_end:
+                        false,
+
+                    cancelled_at:
+                        null,
+
+                    cancellation_reason:
+                        null,
+
+                    created_at:
+                        subscription?.created_at ??
+                        new Date().toISOString(),
                 });
 
                 /* ==================================================
@@ -1082,19 +1096,33 @@ export const PlansPage: React.FC = () => {
 
                 const normalizedResult: TrialResult = {
                     success: true,
-                    workspace_id: workspaceId,
-                    plan: selectedPlanForDatabase,
-                    trial_used: true,
-                    trial_started_at: startedAt,
-                    trial_ends_at: endsAt,
-                    days: 14,
+
+                    workspace_id:
+                        workspaceId,
+
+                    plan:
+                        selectedPlanForDatabase,
+
+                    trial_used:
+                        true,
+
+                    trial_started_at:
+                        startedAt,
+
+                    trial_ends_at:
+                        endsAt,
+
+                    days:
+                        14,
                 };
 
                 setTrialResult(
                     normalizedResult
                 );
 
-                setTrialSuccess(true);
+                setTrialSuccess(
+                    true
+                );
 
                 createTrialNotification(
                     selectedPlan
@@ -1109,12 +1137,17 @@ export const PlansPage: React.FC = () => {
                 let message =
                     'Não foi possível iniciar o período de teste.';
 
-                if (error instanceof Error) {
+                if (
+                    error instanceof
+                    Error
+                ) {
                     message =
-                        error.message || message;
+                        error.message ||
+                        message;
                 } else if (
                     error &&
-                    typeof error === 'object'
+                    typeof error ===
+                        'object'
                 ) {
                     const errorData =
                         error as {
@@ -1124,18 +1157,22 @@ export const PlansPage: React.FC = () => {
                         };
 
                     if (
-                        errorData.status === 401
+                        errorData.status ===
+                        401
                     ) {
                         message =
                             'Sua sessão expirou. Faça login novamente e tente outra vez.';
                     } else if (
-                        errorData.status === 403 ||
-                        errorData.code === '42501'
+                        errorData.status ===
+                            403 ||
+                        errorData.code ===
+                            '42501'
                     ) {
                         message =
                             'Você não possui permissão para iniciar o período de teste neste workspace.';
                     } else if (
-                        errorData.code === 'PGRST202'
+                        errorData.code ===
+                        'PGRST202'
                     ) {
                         message =
                             'A função start_workspace_trial não foi encontrada no Supabase.';
@@ -1146,127 +1183,6 @@ export const PlansPage: React.FC = () => {
                             errorData.message;
                     }
                 }
-
-                setErrorMessage(message);
-            } finally {
-                setIsProcessing(false);
-            }
-        };
-
-    /* ============================================================
-       STARTER / FREE
-    ============================================================ */
-
-    const handleStarterPlan =
-        async () => {
-            if (!workspaceId) {
-                setErrorMessage(
-                    'Workspace não encontrado.'
-                );
-                return;
-            }
-
-            if (
-                currentPlanId ===
-                'Starter'
-            ) {
-                return;
-            }
-
-            if (trialIsActive) {
-                setErrorMessage(
-                    'O período de teste está ativo. Aguarde o término ou conclua a contratação do plano.'
-                );
-                return;
-            }
-
-            setIsProcessing(
-                true
-            );
-
-            setErrorMessage(
-                null
-            );
-
-            try {
-                await updateWorkspace(
-                    {
-                        plan:
-                            'free',
-
-                        planBilling:
-                            'monthly',
-                    }
-                );
-
-                setLocalTrial(
-                    {
-                        used:
-                            trialUsed,
-
-                        startedAt:
-                            trialStartedAt,
-
-                        endsAt:
-                            trialEndsAt,
-                    }
-                );
-
-                try {
-                    const notifications =
-                        notificationService.getNotifications();
-
-                    const updatedNotifications =
-                        Array.isArray(
-                            notifications
-                        )
-                            ? [
-                                  ...notifications,
-                              ]
-                            : [];
-
-                    updatedNotifications.unshift(
-                        {
-                            id:
-                                `notif_plan_${Date.now()}`,
-
-                            title:
-                                'Plano alterado',
-
-                            message:
-                                'O workspace foi alterado para o Plano Starter Gratuito.',
-
-                            type:
-                                'payment',
-
-                            read:
-                                false,
-
-                            createdAt:
-                                new Date().toISOString(),
-
-                            link:
-                                '/plans',
-                        }
-                    );
-
-                    localStorage.setItem(
-                        'stalmind_app_notifications',
-                        JSON.stringify(
-                            updatedNotifications
-                        )
-                    );
-                } catch {
-                    /* Notificação não bloqueia alteração */
-                }
-            } catch (
-                error: unknown
-            ) {
-                const message =
-                    error instanceof
-                        Error
-                        ? error.message
-                        : 'Não foi possível alterar para o Plano Starter.';
 
                 setErrorMessage(
                     message
@@ -1340,13 +1256,9 @@ export const PlansPage: React.FC = () => {
             'pt-PT',
             {
                 day: '2-digit',
-
                 month: '2-digit',
-
                 year: 'numeric',
-
                 hour: '2-digit',
-
                 minute: '2-digit',
             }
         );
@@ -1520,9 +1432,21 @@ export const PlansPage: React.FC = () => {
                             !trialUsed &&
                             !trialIsActive;
 
+                        /*
+                         * Starter nunca altera diretamente
+                         * workspace.plan.
+                         *
+                         * O downgrade é realizado pelo backend.
+                         */
+                        const starterBlocked =
+                            plan.id ===
+                                'Starter' &&
+                            !isCurrent;
+
                         const disabled =
                             isCurrent ||
                             isProcessing ||
+                            starterBlocked ||
                             (
                                 isPaid &&
                                 trialIsActive
@@ -1708,13 +1632,20 @@ export const PlansPage: React.FC = () => {
                                             <>
                                                 Indisponível
                                             </>
+                                        ) : plan.id ===
+                                          'Starter' ? (
+                                            <>
+
+                                                <span>
+                                                    Plano Starter
+                                                </span>
+
+                                            </>
                                         ) : (
                                             <>
 
                                                 <span>
-                                                    {isPaid
-                                                        ? 'Começar 14 Dias Grátis'
-                                                        : plan.cta}
+                                                    Começar 14 Dias Grátis
                                                 </span>
 
                                                 <ArrowRight className="w-4 h-4" />
@@ -1728,6 +1659,14 @@ export const PlansPage: React.FC = () => {
                                         trialAvailable && (
                                             <p className="text-center text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-2">
                                                 Sem cobrança agora • 14 dias grátis
+                                            </p>
+                                        )}
+
+                                    {plan.id ===
+                                        'Starter' &&
+                                        !isCurrent && (
+                                            <p className="text-center text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-2">
+                                                Aplicado automaticamente quando não houver subscrição paga ativa.
                                             </p>
                                         )}
 
@@ -1840,15 +1779,27 @@ export const PlansPage: React.FC = () => {
 
                         <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
 
-                            O valor depende da moeda do workspace. Atualmente o Pro custa {currency === 'BRL'
+                            O valor depende da moeda do workspace. Atualmente o Pro custa{' '}
+
+                            {currency ===
+                            'BRL'
                                 ? 'R$ 39,90'
-                                : currency === 'USD'
+                                : currency ===
+                                    'USD'
                                     ? '$ 15,90'
-                                    : '€ 14,90'} por mês e o Enterprise custa {currency === 'BRL'
+                                    : '€ 14,90'}
+
+                            {' '}por mês e o Enterprise custa{' '}
+
+                            {currency ===
+                            'BRL'
                                 ? 'R$ 99,90'
-                                : currency === 'USD'
+                                : currency ===
+                                    'USD'
                                     ? '$ 53,90'
-                                    : '€ 49,90'} por mês.
+                                    : '€ 49,90'}
+
+                            {' '}por mês.
 
                         </p>
 
@@ -1862,7 +1813,7 @@ export const PlansPage: React.FC = () => {
 
                         <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
 
-                            Se não houver uma subscrição ou pagamento ativo, o workspace deverá voltar automaticamente para o plano Starter / Free.
+                            Se não houver uma subscrição paga ativa, o backend deverá retirar o acesso ao plano pago e manter o workspace no plano Starter / Free.
 
                         </p>
 
@@ -1890,7 +1841,7 @@ export const PlansPage: React.FC = () => {
 
                         <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
 
-                            Após o período de teste, a subscrição poderá ser paga pelos métodos de pagamento configurados para o plano.
+                            Depois do trial, a contratação recorrente atualmente disponível nesta tela é feita através do PayPal.
 
                         </p>
 
@@ -1995,11 +1946,14 @@ export const PlansPage: React.FC = () => {
                                 </span>
 
                                 <strong className="text-emerald-600 dark:text-emerald-400">
+
                                     {selectedPlan &&
                                         getPlanPrice(
                                             selectedPlan
                                         )}
+
                                     /mês
+
                                 </strong>
 
                             </div>
@@ -2130,11 +2084,19 @@ export const PlansPage: React.FC = () => {
                                 <div>
 
                                     <strong className="block text-sm text-emerald-700 dark:text-emerald-300">
-                                        {trialUsed ? 'Assinatura mensal' : '14 dias totalmente grátis'}
+
+                                        {trialUsed
+                                            ? 'Assinatura mensal'
+                                            : '14 dias totalmente grátis'}
+
                                     </strong>
 
                                     <span className="text-xs text-emerald-600/80 dark:text-emerald-400/80">
-                                        {trialUsed ? 'Ative novamente o plano após o fim do trial.' : 'Acesso imediato ao plano.'}
+
+                                        {trialUsed
+                                            ? 'O pagamento será processado pelo PayPal.'
+                                            : 'Acesso imediato ao plano.'}
+
                                     </span>
 
                                 </div>
@@ -2148,11 +2110,19 @@ export const PlansPage: React.FC = () => {
                                 <div>
 
                                     <strong className="block text-sm text-slate-800 dark:text-slate-200">
-                                        {trialUsed ? 'Pagamento seguro pelo PayPal' : 'Nenhum pagamento agora'}
+
+                                        {trialUsed
+                                            ? 'Pagamento seguro pelo PayPal'
+                                            : 'Nenhum pagamento agora'}
+
                                     </strong>
 
                                     <span className="text-xs text-slate-500 dark:text-slate-400">
-                                        {trialUsed ? 'A cobrança será feita conforme a assinatura PayPal.' : 'O período de teste começa imediatamente.'}
+
+                                        {trialUsed
+                                            ? 'A cobrança será feita conforme a assinatura recorrente PayPal.'
+                                            : 'O período de teste começa imediatamente.'}
+
                                     </span>
 
                                 </div>
@@ -2166,11 +2136,19 @@ export const PlansPage: React.FC = () => {
                                 <div>
 
                                     <strong className="block text-sm text-slate-800 dark:text-slate-200">
-                                        {trialUsed ? 'Assinatura recorrente' : 'Após os 14 dias'}
+
+                                        {trialUsed
+                                            ? 'Assinatura recorrente'
+                                            : 'Após os 14 dias'}
+
                                     </strong>
 
                                     <span className="text-xs text-slate-500 dark:text-slate-400">
-                                        {trialUsed ? 'O PayPal fará a cobrança mensal conforme a assinatura.' : 'Sem pagamento ou subscrição, o workspace volta para o plano Starter.'}
+
+                                        {trialUsed
+                                            ? 'O PayPal fará a cobrança mensal conforme a assinatura.'
+                                            : 'Sem pagamento ou subscrição, o workspace volta para o plano Starter.'}
+
                                     </span>
 
                                 </div>
@@ -2184,7 +2162,9 @@ export const PlansPage: React.FC = () => {
                             <div className="flex justify-between items-center">
 
                                 <span className="text-xs text-slate-500 dark:text-slate-400">
-                                    Valor após o trial
+                                    {trialUsed
+                                        ? 'Valor da assinatura'
+                                        : 'Valor após o trial'}
                                 </span>
 
                                 <strong className="text-lg font-black text-slate-900 dark:text-white">
@@ -2203,10 +2183,26 @@ export const PlansPage: React.FC = () => {
                             </div>
 
                             <p className="text-[10px] text-indigo-500 mt-1 text-right">
-                                Cobrança mensal • {currency}
+                                Cobrança mensal • {currency} • PayPal
                             </p>
 
                         </div>
+
+                        {trialUsed && (
+                            <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 text-xs text-blue-700 dark:text-blue-300">
+
+                                <div className="flex items-start gap-2">
+
+                                    <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
+
+                                    <span>
+                                        Ao continuar, você será encaminhado ao PayPal para autorizar a assinatura mensal. A ativação definitiva do plano ocorre após a confirmação através do webhook do PayPal.
+                                    </span>
+
+                                </div>
+
+                            </div>
+                        )}
 
                         <div className="flex flex-col sm:flex-row gap-3">
 
@@ -2239,7 +2235,9 @@ export const PlansPage: React.FC = () => {
 
                                         <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
 
-                                        {trialUsed ? 'Abrindo pagamento PayPal...' : 'Ativando 14 dias grátis...'}
+                                        {trialUsed
+                                            ? 'Abrindo pagamento PayPal...'
+                                            : 'Ativando 14 dias grátis...'}
 
                                     </>
                                 ) : (
@@ -2251,7 +2249,9 @@ export const PlansPage: React.FC = () => {
                                             <Gift className="w-4 h-4" />
                                         )}
 
-                                        {trialUsed ? 'Continuar com PayPal' : 'Ativar 14 Dias Grátis'}
+                                        {trialUsed
+                                            ? 'Continuar com PayPal'
+                                            : 'Ativar 14 Dias Grátis'}
 
                                     </>
                                 )}
@@ -2267,4 +2267,4 @@ export const PlansPage: React.FC = () => {
 
         </div>
     );
-}
+};

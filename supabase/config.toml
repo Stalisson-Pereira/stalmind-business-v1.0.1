@@ -23,3 +23,23 @@ entrypoint = "./functions/setup-paypal-plans/index.ts"
 
 [functions.expire-paid-trials]
 verify_jwt = false
+
+[functions.mercadopago-webhook]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/mercadopago-webhook/index.ts"
+
+[functions.create-mercadopago-subscription]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/create-mercadopago-subscription/index.ts"
+
+[functions.cancel-mercadopago-subscription]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/cancel-mercadopago-subscription/index.ts"
+
+[functions.create-mercadopago-pix]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/create-mercadopago-pix/index.ts"
