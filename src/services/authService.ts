@@ -1582,57 +1582,99 @@ export const authService = {
   // ==========================================================
 
   async selectPlan(
-    selectedPlan: 'pro' | 'enterprise'
+    selectedPlan:
+      | 'pro'
+      | 'enterprise'
   ): Promise<Workspace> {
+
+    // ==========================================================
+    // VALIDAR PLANO
+    // ==========================================================
+
+    const plan =
+      validateTrialPlan(
+        selectedPlan
+      );
+
+
+    // ==========================================================
+    // BUSCAR WORKSPACE
+    // ==========================================================
+
     const workspace =
       await this.getCurrentWorkspace();
 
+
     if (!workspace) {
       throw new Error(
-        'Usuário não possui workspace associado.'
+        'Nenhum workspace encontrado.'
       );
     }
 
-    const currentPlan =
+
+    // ==========================================================
+    // FREE + TRIAL DISPONÍVEL
+    // ==========================================================
+
+    if (
       normalizePlan(
         workspace.plan
-      );
-
-    if (
-      currentPlan === selectedPlan
+      ) === PLANS.FREE &&
+      workspace.trialUsed === false
     ) {
-      return workspace;
+
+      const started =
+        await this.startTrial(
+          workspace.id,
+          plan
+        );
+
+
+      if (!started) {
+        throw new Error(
+          'Não foi possível iniciar o período de teste.'
+        );
+      }
+
+
+      // --------------------------------------------------------
+      // RECARREGAR DO BANCO
+      // --------------------------------------------------------
+
+      const updated =
+        await this.getCurrentWorkspace();
+
+
+      if (!updated) {
+        throw new Error(
+          'O período de teste foi iniciado, mas não foi possível atualizar o workspace.'
+        );
+      }
+
+
+      return updated;
     }
 
+
+    // ==========================================================
+    // TRIAL JÁ USADO
+    // ==========================================================
+
     if (
-      currentPlan !== PLANS.FREE
+      workspace.trialUsed
     ) {
       throw new Error(
-        'Não é possível alterar o plano enquanto existe um plano pago ativo.'
+        'O período de teste gratuito já foi utilizado. Para continuar com este plano, é necessário realizar o pagamento.'
       );
     }
 
-    /*
-     * PRIMEIRA CONTRATAÇÃO:
-     *
-     * Free + trial nunca utilizado
-     * = inicia 14 dias de teste.
-     */
-    if (!workspace.trialUsed) {
-      return await this.startTrial(
-        workspace.id,
-        selectedPlan
-      );
-    }
 
-    /*
-     * TRIAL JÁ UTILIZADO:
-     *
-     * Não inicia outro trial.
-     * O fluxo deve passar pelo pagamento.
-     */
+    // ==========================================================
+    // OUTRO CASO
+    // ==========================================================
+
     throw new Error(
-      'O período de teste gratuito já foi utilizado. Para continuar com este plano, é necessário realizar o pagamento.'
+      `Não é possível iniciar o plano ${plan} desta forma. Utilize o processo de pagamento.`
     );
   },
 
@@ -1651,9 +1693,7 @@ export const authService = {
     const plan = validateTrialPlan(selectedPlan);
 
     if (!isSupabaseConfigured || !supabase) {
-      throw new Error(
-        'O Supabase não está configurado.'
-      );
+      throw new Error('Supabase não está configurado.');
     }
 
     const {
@@ -1661,157 +1701,75 @@ export const authService = {
       error: sessionError,
     } = await supabase.auth.getSession();
 
-    if (
-      sessionError ||
-      !sessionData.session?.access_token
-    ) {
-      throw new Error(
-        'Sua sessão expirou. Faça login novamente.'
-      );
+    if (sessionError || !sessionData.session?.access_token) {
+      throw new Error('Usuário não autenticado. Faça login novamente.');
     }
 
-    const currentWorkspace =
-      await this.getCurrentWorkspace();
+    const currentWorkspace = await this.getCurrentWorkspace();
 
-    if (!currentWorkspace?.id) {
-      throw new Error(
-        'Usuário não possui workspace associado.'
-      );
+    if (!currentWorkspace) {
+      throw new Error('Nenhum workspace encontrado.');
     }
 
-    const workspaceId =
-      String(currentWorkspace.id).trim();
-
-    if (!isValidUUID(workspaceId)) {
-      throw new Error(
-        'O workspace atual possui um ID inválido.'
-      );
+    if (!isValidUUID(currentWorkspace.id)) {
+      throw new Error('O ID do workspace não é um UUID válido.');
     }
 
-    const currentPlan =
-      normalizePlan(
-        currentWorkspace.plan
-      );
+    if (normalizePlan(currentWorkspace.plan) === plan &&
+        currentWorkspace.trialUsed &&
+        currentWorkspace.trialEndsAt &&
+        new Date(currentWorkspace.trialEndsAt).getTime() > Date.now()) {
+      throw new Error('O plano já está ativo em período de teste.');
+    }
 
-    if (currentPlan !== PLANS.FREE) {
-      throw new Error(
-        'O workspace já possui um plano pago ativo.'
-      );
+    if (normalizePlan(currentWorkspace.plan) !== PLANS.FREE) {
+      throw new Error('O workspace já possui um plano pago ativo.');
     }
 
     if (!currentWorkspace.trialUsed) {
-      throw new Error(
-        'O período de teste gratuito ainda não foi utilizado.'
-      );
-    }
-
-    if (
-      currentWorkspace.trialEndsAt &&
-      new Date(
-        currentWorkspace.trialEndsAt
-      ).getTime() > Date.now()
-    ) {
-      throw new Error(
-        'O período de teste ainda está ativo.'
-      );
+      throw new Error('O período de teste ainda está disponível. Inicie o trial antes de realizar a assinatura paga.');
     }
 
     if (provider !== 'paypal') {
-      throw new Error(
-        'No momento, a contratação pós-trial está disponível pelo PayPal.'
-      );
+      throw new Error('Provedor de pagamento ainda não disponível para assinatura do plano.');
     }
 
-    const currency =
-      String(
-        currentWorkspace.currency || 'EUR'
-      )
-        .trim()
-        .toUpperCase();
-
-    if (
-      !['BRL', 'EUR', 'USD'].includes(
-        currency
-      )
-    ) {
-      throw new Error(
-        'A moeda do workspace não é suportada pelo PayPal.'
-      );
-    }
-
-    const {
-      data,
-      error,
-    } = await supabase.functions.invoke(
+    const { data, error } = await supabase.functions.invoke(
       'create-paypal-subscription',
       {
         body: {
-          workspace_id:
-            workspaceId,
+          workspace_id: currentWorkspace.id,
           plan,
-          currency,
+          currency: String(currentWorkspace.currency || 'EUR').toUpperCase(),
         },
       }
     );
 
     if (error) {
-      let message =
-        error.message ||
-        'Não foi possível iniciar a assinatura PayPal.';
-
+      let message = error.message || 'Não foi possível iniciar a assinatura PayPal.';
       try {
-        const context =
-          (error as any)?.context;
-
-        if (context) {
-          const response =
-            context instanceof Response
-              ? context
-              : null;
-
-          if (response) {
-            const payload =
-              await response
-                .clone()
-                .json()
-                .catch(() => null);
-
-            if (
-              payload?.error
-            ) {
-              message =
-                String(
-                  payload.error
-                );
-            }
-          }
+        const context = (error as any)?.context;
+        if (context?.json) {
+          const payload = await context.json();
+          if (payload?.error) message = payload.error;
         }
       } catch {
         // Mantém a mensagem original.
       }
-
       throw new Error(message);
     }
 
-    if (
-      !data?.subscription_id ||
-      !data?.approval_url
-    ) {
+    if (!data?.approval_url || !data?.subscription_id) {
       throw new Error(
-        'O PayPal não retornou os dados necessários para continuar.'
+        data?.error ||
+        'O PayPal não retornou o endereço de aprovação da assinatura.'
       );
     }
 
     return {
       provider: 'paypal',
-      subscriptionId:
-        String(
-          data.subscription_id
-        ),
-      approvalUrl:
-        String(
-          data.approval_url
-        ),
+      subscriptionId: String(data.subscription_id),
+      approvalUrl: String(data.approval_url),
     };
   },
 
@@ -2046,6 +2004,61 @@ export const authService = {
         'Não foi possível alterar a senha.'
       );
     }
+  },
+
+  // ==========================================================
+  // VOLTAR PARA O PLANO FREE
+  // ==========================================================
+
+  async downgradeToFree(): Promise<Workspace> {
+    const currentWorkspace = await this.getCurrentWorkspace();
+
+    if (!currentWorkspace) {
+      throw new Error('Nenhum workspace encontrado.');
+    }
+
+    if (!isSupabaseConfigured || !supabase) {
+      const updated: Workspace = {
+        ...currentWorkspace,
+        plan: PLANS.FREE,
+        planBilling: 'monthly',
+      };
+
+      localStorage.setItem(WORKSPACE_KEY, JSON.stringify(updated));
+      return updated;
+    }
+
+    const { data, error } = await supabase.rpc(
+      'downgrade_workspace_to_free',
+      { target_workspace: currentWorkspace.id }
+    );
+
+    if (error) {
+      console.error('[authService] Erro downgrade_workspace_to_free:', error);
+
+      if (error.code === '42501') {
+        throw new Error('Você não possui permissão para alterar o plano deste workspace.');
+      }
+
+      if (error.code === 'PGRST202') {
+        throw new Error('A função downgrade_workspace_to_free não foi encontrada no Supabase. Execute o SQL de correção.');
+      }
+
+      throw new Error(error.message || 'Não foi possível voltar para o plano Free.');
+    }
+
+    if (!data?.success || !data?.workspace) {
+      throw new Error(data?.error || 'O servidor não confirmou a alteração para o plano Free.');
+    }
+
+    const updated = mapWorkspace(
+      data.workspace,
+      currentWorkspace.role,
+      currentWorkspace.ownerId
+    );
+
+    localStorage.setItem(WORKSPACE_KEY, JSON.stringify(updated));
+    return updated;
   },
 
   // ==========================================================

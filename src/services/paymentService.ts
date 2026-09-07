@@ -3,31 +3,31 @@ import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
 const DEFAULT_CONFIG: PaymentGatewayConfig = {
   mbway: {
-    enabled: true,
-    phone: '+351 912 345 678',
-    key: 'mbw_live_894372948',
+    enabled: false,
+    phone: '',
+    key: '',
   },
   multibanco: {
-    enabled: true,
-    entity: '12345',
-    subEntity: '987',
-    antiPhishingKey: 'MB-SECURE-2026',
+    enabled: false,
+    entity: '',
+    subEntity: '',
+    antiPhishingKey: '',
   },
   stripe: {
-    enabled: true,
-    publishableKey: 'pk_live_51NxStalmindPaymentKey2026',
-    secretKey: 'sk_live_*****',
+    enabled: false,
+    publishableKey: '',
+    secretKey: '',
   },
   bankTransfer: {
-    enabled: true,
-    iban: 'PT50 0033 0000 1234 5678 9012 3',
-    bankName: 'Banco BCP Millennium',
-    swiftBic: 'BCOMPTPL',
-    accountHolder: 'Stalmind OS Unipessoal Lda',
+    enabled: false,
+    iban: '',
+    bankName: '',
+    swiftBic: '',
+    accountHolder: '',
   },
   paypal: {
     enabled: false,
-    email: 'financeiro@stalmind.com',
+    email: '',
   },
 };
 
@@ -49,7 +49,7 @@ export const paymentService = {
         console.error(e);
       }
     }
-    return DEFAULT_CONFIG;
+    return structuredClone(DEFAULT_CONFIG);
   },
 
   async saveGatewayConfig(workspaceId: string, config: PaymentGatewayConfig): Promise<void> {
