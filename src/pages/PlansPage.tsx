@@ -394,6 +394,12 @@ export const PlansPage: React.FC = () => {
     const [trialResult, setTrialResult] =
         useState<TrialResult | null>(null);
 
+    const [paymentProvider, setPaymentProvider] =
+        useState<'paypal' | 'mercado_pago'>('paypal');
+
+    const [mercadoPagoPix, setMercadoPagoPix] =
+        useState<{ qrCode: string; qrCodeBase64?: string | null; ticketUrl?: string | null; paymentId: string } | null>(null);
+
     const [errorMessage, setErrorMessage] =
         useState<string | null>(null);
 
@@ -901,6 +907,8 @@ export const PlansPage: React.FC = () => {
             setErrorMessage(null);
             setTrialSuccess(false);
             setTrialResult(null);
+            setPaymentProvider('paypal');
+            setMercadoPagoPix(null);
             setIsTrialModalOpen(true);
             return;
         }
@@ -920,6 +928,8 @@ export const PlansPage: React.FC = () => {
         setTrialResult(
             null
         );
+        setPaymentProvider('paypal');
+        setMercadoPagoPix(null);
 
         setIsTrialModalOpen(
             true
@@ -960,6 +970,14 @@ export const PlansPage: React.FC = () => {
                     const selectedPlanForDatabase =
                         PLAN_DATABASE_MAP[selectedPlan.id];
 
+                    if (paymentProvider === 'mercado_pago') {
+                        const pix = await authService.startMercadoPagoPix(
+                            selectedPlanForDatabase
+                        );
+                        setMercadoPagoPix(pix);
+                        return;
+                    }
+
                     const payment =
                         await authService.startPaidSubscription(
                             selectedPlanForDatabase,
@@ -972,7 +990,7 @@ export const PlansPage: React.FC = () => {
                     setErrorMessage(
                         error instanceof Error
                             ? error.message
-                            : 'Não foi possível iniciar o pagamento PayPal.'
+                            : paymentProvider === 'mercado_pago' ? 'Não foi possível criar o PIX no Mercado Pago.' : 'Não foi possível iniciar o pagamento PayPal.'
                     );
                 } finally {
                     setIsProcessing(false);
@@ -1157,123 +1175,19 @@ export const PlansPage: React.FC = () => {
     ============================================================ */
 
     const handleStarterPlan =
-        async () => {
+        () => {
             if (!workspaceId) {
-                setErrorMessage(
-                    'Workspace não encontrado.'
-                );
+                setErrorMessage('Workspace não encontrado.');
                 return;
             }
 
-            if (
-                currentPlanId ===
-                'Starter'
-            ) {
+            if (currentPlanId === 'Starter') {
                 return;
             }
-
-            if (trialIsActive) {
-                setErrorMessage(
-                    'O período de teste está ativo. Aguarde o término ou conclua a contratação do plano.'
-                );
-                return;
-            }
-
-            setIsProcessing(
-                true
-            );
 
             setErrorMessage(
-                null
+                'O plano Starter é aplicado automaticamente quando o trial termina sem uma assinatura paga ativa.'
             );
-
-            try {
-                const downgradedWorkspace =
-                    await authService.downgradeToFree();
-
-                if (downgradedWorkspace.id !== workspaceId) {
-                    throw new Error(
-                        'O workspace retornado pelo servidor não corresponde ao workspace atual.'
-                    );
-                }
-
-                setLocalTrial(
-                    {
-                        used:
-                            trialUsed,
-
-                        startedAt:
-                            trialStartedAt,
-
-                        endsAt:
-                            trialEndsAt,
-                    }
-                );
-
-                try {
-                    const notifications =
-                        notificationService.getNotifications();
-
-                    const updatedNotifications =
-                        Array.isArray(
-                            notifications
-                        )
-                            ? [
-                                  ...notifications,
-                              ]
-                            : [];
-
-                    updatedNotifications.unshift(
-                        {
-                            id:
-                                `notif_plan_${Date.now()}`,
-
-                            title:
-                                'Plano alterado',
-
-                            message:
-                                'O workspace foi alterado para o Plano Starter Gratuito.',
-
-                            type:
-                                'payment',
-
-                            read:
-                                false,
-
-                            createdAt:
-                                new Date().toISOString(),
-
-                            link:
-                                '/plans',
-                        }
-                    );
-
-                    localStorage.setItem(
-                        'stalmind_app_notifications',
-                        JSON.stringify(
-                            updatedNotifications
-                        )
-                    );
-                } catch {
-                    /* Notificação não bloqueia alteração */
-                }
-            } catch (
-                error: unknown
-            ) {
-                const message =
-                    error instanceof
-                        Error
-                        ? error.message
-                        : 'Não foi possível alterar para o Plano Starter.';
-
-                setErrorMessage(
-                    message
-                );
-            } finally {
-                setIsProcessing(
-                    false
-                );
-            }
         };
 
     /* ============================================================
@@ -2146,11 +2060,11 @@ export const PlansPage: React.FC = () => {
                                 <div>
 
                                     <strong className="block text-sm text-slate-800 dark:text-slate-200">
-                                        {trialUsed ? 'Pagamento seguro pelo PayPal' : 'Nenhum pagamento agora'}
+                                        {trialUsed ? (paymentProvider === 'mercado_pago' ? 'Pagamento seguro pelo Mercado Pago' : 'Pagamento seguro pelo PayPal') : 'Nenhum pagamento agora'}
                                     </strong>
 
                                     <span className="text-xs text-slate-500 dark:text-slate-400">
-                                        {trialUsed ? 'A cobrança será feita conforme a assinatura PayPal.' : 'O período de teste começa imediatamente.'}
+                                        {trialUsed ? (paymentProvider === 'mercado_pago' ? 'Pague o valor do plano por PIX usando o Mercado Pago.' : 'A cobrança será feita conforme a assinatura PayPal.') : 'O período de teste começa imediatamente.'}
                                     </span>
 
                                 </div>
@@ -2164,11 +2078,11 @@ export const PlansPage: React.FC = () => {
                                 <div>
 
                                     <strong className="block text-sm text-slate-800 dark:text-slate-200">
-                                        {trialUsed ? 'Assinatura recorrente' : 'Após os 14 dias'}
+                                        {trialUsed ? (paymentProvider === 'mercado_pago' ? 'Pagamento via PIX' : 'Assinatura recorrente') : 'Após os 14 dias'}
                                     </strong>
 
                                     <span className="text-xs text-slate-500 dark:text-slate-400">
-                                        {trialUsed ? 'O PayPal fará a cobrança mensal conforme a assinatura.' : 'Sem pagamento ou subscrição, o workspace volta para o plano Starter.'}
+                                        {trialUsed ? (paymentProvider === 'mercado_pago' ? 'O pagamento PIX será confirmado pelo webhook do Mercado Pago.' : 'O PayPal fará a cobrança mensal conforme a assinatura.') : 'Sem pagamento ou subscrição, o workspace volta para o plano Starter.'}
                                     </span>
 
                                 </div>
@@ -2176,6 +2090,34 @@ export const PlansPage: React.FC = () => {
                             </div>
 
                         </div>
+
+                        {trialUsed && (
+                            <div className="space-y-2">
+                                <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Escolha a forma de pagamento</p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <button type="button" onClick={() => { setPaymentProvider('paypal'); setMercadoPagoPix(null); }} className={`p-3 rounded-xl border text-left transition-all ${paymentProvider === 'paypal' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30' : 'border-slate-200 dark:border-slate-700'}`}>
+                                        <strong className="block text-xs text-slate-900 dark:text-white">PayPal</strong>
+                                        <span className="text-[10px] text-slate-500">Assinatura mensal recorrente</span>
+                                    </button>
+                                    <button type="button" disabled={currency !== 'BRL'} onClick={() => { setPaymentProvider('mercado_pago'); setMercadoPagoPix(null); }} className={`p-3 rounded-xl border text-left transition-all ${paymentProvider === 'mercado_pago' ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30' : 'border-slate-200 dark:border-slate-700'} ${currency !== 'BRL' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                                        <strong className="block text-xs text-slate-900 dark:text-white">Mercado Pago</strong>
+                                        <span className="text-[10px] text-slate-500">PIX • disponível em BRL</span>
+                                    </button>
+                                </div>
+                                {currency !== 'BRL' && <p className="text-[10px] text-amber-600">Mercado Pago PIX está disponível somente para workspace em BRL.</p>}
+                            </div>
+                        )}
+
+                        {mercadoPagoPix && (
+                            <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 space-y-3">
+                                <div><strong className="block text-sm text-emerald-700 dark:text-emerald-300">PIX Mercado Pago criado</strong><span className="text-xs text-emerald-600 dark:text-emerald-400">Pague o valor para ativar o plano.</span></div>
+                                {mercadoPagoPix.qrCodeBase64 && <img src={`data:image/png;base64,${mercadoPagoPix.qrCodeBase64}`} alt="QR Code PIX Mercado Pago" className="mx-auto w-48 h-48 rounded-xl bg-white p-2" />}
+                                <div className="flex gap-2">
+                                    <button type="button" onClick={() => navigator.clipboard.writeText(mercadoPagoPix.qrCode)} className="flex-1 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold">Copiar PIX</button>
+                                    {mercadoPagoPix.ticketUrl && <a href={mercadoPagoPix.ticketUrl} target="_blank" rel="noreferrer" className="flex-1 py-2 rounded-lg border border-emerald-300 text-emerald-700 text-xs font-bold text-center">Abrir Mercado Pago</a>}
+                                </div>
+                            </div>
+                        )}
 
                         <div className="p-4 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
 
@@ -2237,7 +2179,7 @@ export const PlansPage: React.FC = () => {
 
                                         <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
 
-                                        {trialUsed ? 'Abrindo pagamento PayPal...' : 'Ativando 14 dias grátis...'}
+                                        {trialUsed ? (paymentProvider === 'mercado_pago' ? 'Criando PIX Mercado Pago...' : 'Abrindo pagamento PayPal...') : 'Ativando 14 dias grátis...'}
 
                                     </>
                                 ) : (
@@ -2249,7 +2191,7 @@ export const PlansPage: React.FC = () => {
                                             <Gift className="w-4 h-4" />
                                         )}
 
-                                        {trialUsed ? 'Continuar com PayPal' : 'Ativar 14 Dias Grátis'}
+                                        {trialUsed ? (paymentProvider === 'mercado_pago' ? 'Gerar PIX Mercado Pago' : 'Continuar com PayPal') : 'Ativar 14 Dias Grátis'}
 
                                     </>
                                 )}

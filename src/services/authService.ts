@@ -685,11 +685,73 @@ export const authService = {
 
         if (!member) {
           console.warn(
-            '[authService] Usuário não possui workspace associado:',
+            '[authService] Usuário não possui workspace associado. Tentando provisionar workspace:',
             user.id
           );
 
-          return null;
+          const {
+            data: ensuredWorkspaceId,
+            error: ensureWorkspaceError,
+          } = await supabase.rpc('ensure_user_workspace');
+
+          if (ensureWorkspaceError || !ensuredWorkspaceId) {
+            console.error(
+              '[authService] Não foi possível provisionar o workspace:',
+              ensureWorkspaceError
+            );
+            return null;
+          }
+
+          const ensuredId = String(ensuredWorkspaceId);
+
+          if (!isValidUUID(ensuredId)) {
+            console.error(
+              '[authService] ensure_user_workspace retornou um ID inválido:',
+              ensuredId
+            );
+            return null;
+          }
+
+          const { data: repairedMember, error: repairedMemberError } =
+            await supabase
+              .from('workspace_members')
+              .select('user_id, workspace_id, role')
+              .eq('user_id', user.id)
+              .eq('workspace_id', ensuredId)
+              .maybeSingle();
+
+          if (repairedMemberError || !repairedMember) {
+            console.error(
+              '[authService] Workspace provisionado, mas membership não pôde ser lido:',
+              repairedMemberError
+            );
+            return null;
+          }
+
+          // Continua o fluxo normal usando o membership recém-criado.
+          // eslint/TypeScript não permite reatribuir const, então seguimos
+          // diretamente para a leitura do workspace abaixo.
+          const { data: repairedWorkspace, error: repairedWorkspaceError } =
+            await supabase
+              .from('workspaces')
+              .select(`
+                id, name, slug, legal_name, tax_id, email, phone, website,
+                address, city, postal_code, country, currency, locale, timezone,
+                logo_url, default_tax_rate, plan, plan_billing, trial_started_at,
+                trial_ends_at, trial_used, created_at, updated_at
+              `)
+              .eq('id', ensuredId)
+              .maybeSingle();
+
+          if (repairedWorkspaceError || !repairedWorkspace) {
+            console.error(
+              '[authService] Não foi possível ler o workspace provisionado:',
+              repairedWorkspaceError
+            );
+            return null;
+          }
+
+          return mapWorkspace(repairedWorkspace, repairedMember.role, repairedMember.user_id);
         }
 
         // ----------------------------------------------------
@@ -1774,6 +1836,92 @@ export const authService = {
   },
 
   // ==========================================================
+  // MERCADO PAGO PIX
+  // ==========================================================
+
+  async startMercadoPagoPix(
+    selectedPlan: 'pro' | 'enterprise'
+  ): Promise<{
+    paymentId: string;
+    qrCode: string;
+    qrCodeBase64?: string | null;
+    ticketUrl?: string | null;
+  }> {
+    const plan = validateTrialPlan(selectedPlan);
+
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error('Supabase não está configurado.');
+    }
+
+    const { data: sessionData, error: sessionError } =
+      await supabase.auth.getSession();
+
+    if (sessionError || !sessionData.session?.access_token) {
+      throw new Error('Usuário não autenticado. Faça login novamente.');
+    }
+
+    const currentWorkspace = await this.getCurrentWorkspace();
+
+    if (!currentWorkspace) {
+      throw new Error('Não foi possível validar o acesso ao workspace.');
+    }
+
+    if (!isValidUUID(currentWorkspace.id)) {
+      throw new Error('O ID do workspace não é um UUID válido.');
+    }
+
+    if (String(currentWorkspace.currency || '').toUpperCase() !== 'BRL') {
+      throw new Error('O Mercado Pago PIX está disponível para cobranças em BRL. Altere a moeda do workspace para BRL para utilizar este método.');
+    }
+
+    if (normalizePlan(currentWorkspace.plan) !== PLANS.FREE) {
+      throw new Error('O workspace já possui um plano pago ativo.');
+    }
+
+    if (!currentWorkspace.trialUsed) {
+      throw new Error('Inicie primeiro o período de 14 dias grátis.');
+    }
+
+    const { data, error } = await supabase.functions.invoke(
+      'create-mercadopago-pix',
+      {
+        body: {
+          workspace_id: currentWorkspace.id,
+          plan,
+          email: sessionData.session.user.email || '',
+        },
+      }
+    );
+
+    if (error) {
+      let message = error.message || 'Não foi possível criar o PIX no Mercado Pago.';
+      try {
+        const context = (error as any)?.context;
+        if (context?.json) {
+          const payload = await context.json();
+          if (payload?.error) message = payload.error;
+        }
+      } catch {
+        // Mantém a mensagem original.
+      }
+      throw new Error(message);
+    }
+
+    if (!data?.pix?.qr_code || !data?.payment?.provider_payment_id) {
+      throw new Error(
+        data?.error || 'O Mercado Pago não retornou os dados do PIX.'
+      );
+    }
+
+    return {
+      paymentId: String(data.payment.provider_payment_id),
+      qrCode: String(data.pix.qr_code),
+      qrCodeBase64: data.pix.qr_code_base64 || null,
+      ticketUrl: data.pix.ticket_url || null,
+    };
+  },
+
+  // ==========================================================
   // SINCRONIZAR TRIAL
   // ==========================================================
 
@@ -2004,61 +2152,6 @@ export const authService = {
         'Não foi possível alterar a senha.'
       );
     }
-  },
-
-  // ==========================================================
-  // VOLTAR PARA O PLANO FREE
-  // ==========================================================
-
-  async downgradeToFree(): Promise<Workspace> {
-    const currentWorkspace = await this.getCurrentWorkspace();
-
-    if (!currentWorkspace) {
-      throw new Error('Nenhum workspace encontrado.');
-    }
-
-    if (!isSupabaseConfigured || !supabase) {
-      const updated: Workspace = {
-        ...currentWorkspace,
-        plan: PLANS.FREE,
-        planBilling: 'monthly',
-      };
-
-      localStorage.setItem(WORKSPACE_KEY, JSON.stringify(updated));
-      return updated;
-    }
-
-    const { data, error } = await supabase.rpc(
-      'downgrade_workspace_to_free',
-      { target_workspace: currentWorkspace.id }
-    );
-
-    if (error) {
-      console.error('[authService] Erro downgrade_workspace_to_free:', error);
-
-      if (error.code === '42501') {
-        throw new Error('Você não possui permissão para alterar o plano deste workspace.');
-      }
-
-      if (error.code === 'PGRST202') {
-        throw new Error('A função downgrade_workspace_to_free não foi encontrada no Supabase. Execute o SQL de correção.');
-      }
-
-      throw new Error(error.message || 'Não foi possível voltar para o plano Free.');
-    }
-
-    if (!data?.success || !data?.workspace) {
-      throw new Error(data?.error || 'O servidor não confirmou a alteração para o plano Free.');
-    }
-
-    const updated = mapWorkspace(
-      data.workspace,
-      currentWorkspace.role,
-      currentWorkspace.ownerId
-    );
-
-    localStorage.setItem(WORKSPACE_KEY, JSON.stringify(updated));
-    return updated;
   },
 
   // ==========================================================
