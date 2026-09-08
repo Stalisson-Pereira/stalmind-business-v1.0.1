@@ -107,7 +107,7 @@ export const PLAN_LIMITS = {
 
     pix: true,
     paypal: true,
-    stripe: false,
+    stripe: true,
     sumup: true,
 
     whatsappReminders: true,
@@ -139,7 +139,7 @@ export const PLAN_LIMITS = {
 
     pix: true,
     paypal: true,
-    stripe: false,
+    stripe: true,
     sumup: true,
 
     whatsappReminders: true,
@@ -604,308 +604,83 @@ export const authService = {
 
   async getCurrentWorkspace(): Promise<Workspace | null> {
     try {
-
       // ======================================================
       // SUPABASE
       // ======================================================
-
-      if (
-        isSupabaseConfigured &&
-        supabase
-      ) {
-
-        // ----------------------------------------------------
-        // OBTER SESSÃO
-        // ----------------------------------------------------
-
+      // A leitura do workspace é feita pela RPC SECURITY DEFINER.
+      // Isso evita que o RLS de workspace_members/workspaces
+      // interrompa a validação durante o login.
+      // ======================================================
+      if (isSupabaseConfigured && supabase) {
         const {
           data: sessionData,
           error: sessionError,
-        } =
-          await supabase.auth.getSession();
+        } = await supabase.auth.getSession();
 
         if (sessionError) {
           console.warn(
             '[authService] Erro ao obter sessão:',
             sessionError.message
           );
-
           return null;
         }
 
-        const user =
-          sessionData.session?.user;
-
-        // ----------------------------------------------------
-        // SEM SESSÃO
-        // ----------------------------------------------------
+        const user = sessionData.session?.user;
 
         if (!user) {
           return null;
         }
 
-        // ----------------------------------------------------
-        // BUSCAR MEMBRO
-        // ----------------------------------------------------
-        //
-        // NÃO USAMOS workspaces(owner_id)
-        // NÃO USAMOS workspaces(*)
-        //
-        // O relacionamento é resolvido manualmente.
-        // ----------------------------------------------------
-
+        // A RPC cria o workspace/membership se necessário e
+        // devolve workspace + role + user_id em uma única chamada.
         const {
-          data: member,
-          error: memberError,
-        } =
-          await supabase
-            .from('workspace_members')
-            .select(
-              `
-                user_id,
-                workspace_id,
-                role
-              `
-            )
-            .eq(
-              'user_id',
-              user.id
-            )
-            .limit(1)
-            .maybeSingle();
-
-        if (memberError) {
-          console.error(
-            '[authService] Erro ao buscar workspace_members:',
-            memberError
-          );
-
-          return null;
-        }
-
-        if (!member) {
-          console.warn(
-            '[authService] Usuário não possui workspace associado. Tentando provisionar workspace:',
-            user.id
-          );
-
-          const {
-            data: ensuredWorkspaceId,
-            error: ensureWorkspaceError,
-          } = await supabase.rpc('ensure_user_workspace');
-
-          if (ensureWorkspaceError || !ensuredWorkspaceId) {
-            console.error(
-              '[authService] Não foi possível provisionar o workspace:',
-              ensureWorkspaceError
-            );
-            return null;
-          }
-
-          const ensuredId = String(ensuredWorkspaceId);
-
-          if (!isValidUUID(ensuredId)) {
-            console.error(
-              '[authService] ensure_user_workspace retornou um ID inválido:',
-              ensuredId
-            );
-            return null;
-          }
-
-          const { data: repairedMember, error: repairedMemberError } =
-            await supabase
-              .from('workspace_members')
-              .select('user_id, workspace_id, role')
-              .eq('user_id', user.id)
-              .eq('workspace_id', ensuredId)
-              .maybeSingle();
-
-          if (repairedMemberError || !repairedMember) {
-            console.error(
-              '[authService] Workspace provisionado, mas membership não pôde ser lido:',
-              repairedMemberError
-            );
-            return null;
-          }
-
-          // Continua o fluxo normal usando o membership recém-criado.
-          // eslint/TypeScript não permite reatribuir const, então seguimos
-          // diretamente para a leitura do workspace abaixo.
-          const { data: repairedWorkspace, error: repairedWorkspaceError } =
-            await supabase
-              .from('workspaces')
-              .select(`
-                id, name, slug, legal_name, tax_id, email, phone, website,
-                address, city, postal_code, country, currency, locale, timezone,
-                logo_url, default_tax_rate, plan, plan_billing, trial_started_at,
-                trial_ends_at, trial_used, created_at, updated_at
-              `)
-              .eq('id', ensuredId)
-              .maybeSingle();
-
-          if (repairedWorkspaceError || !repairedWorkspace) {
-            console.error(
-              '[authService] Não foi possível ler o workspace provisionado:',
-              repairedWorkspaceError
-            );
-            return null;
-          }
-
-          return mapWorkspace(repairedWorkspace, repairedMember.role, repairedMember.user_id);
-        }
-
-        // ----------------------------------------------------
-        // VALIDAR WORKSPACE ID
-        // ----------------------------------------------------
-
-        if (
-          !isValidUUID(
-            member.workspace_id
-          )
-        ) {
-          console.error(
-            '[authService] workspace_id inválido:',
-            member.workspace_id
-          );
-
-          return null;
-        }
-
-        // ----------------------------------------------------
-        // BUSCAR WORKSPACE
-        // ----------------------------------------------------
-        //
-        // ATENÇÃO:
-        // owner_id NÃO EXISTE NA SUA TABELA.
-        //
-        // Portanto NÃO está no SELECT.
-        // ----------------------------------------------------
-
-        const {
-          data: workspaceData,
+          data: currentWorkspace,
           error: workspaceError,
-        } =
-          await supabase
-            .from('workspaces')
-            .select(
-              `
-                id,
-                name,
-                slug,
-                legal_name,
-                tax_id,
-                email,
-                phone,
-                website,
-                address,
-                city,
-                postal_code,
-                country,
-                currency,
-                locale,
-                timezone,
-                logo_url,
-                default_tax_rate,
-                plan,
-                plan_billing,
-                trial_started_at,
-                trial_ends_at,
-                trial_used,
-                created_at,
-                updated_at
-              `
-            )
-            .eq(
-              'id',
-              member.workspace_id
-            )
-            .maybeSingle();
+        } = await supabase.rpc('get_current_workspace');
 
         if (workspaceError) {
           console.error(
-            '[authService] Erro ao buscar workspace:',
+            '[authService] Erro na RPC get_current_workspace:',
             workspaceError
           );
-
           return null;
         }
 
-        if (!workspaceData) {
+        if (!currentWorkspace) {
           console.warn(
-            '[authService] Workspace não encontrado:',
-            member.workspace_id
+            '[authService] RPC get_current_workspace não retornou workspace.'
           );
-
           return null;
         }
 
-        // ----------------------------------------------------
-        // BUSCAR OWNER ATRAVÉS DE workspace_members
-        // ----------------------------------------------------
+        const workspaceData =
+          currentWorkspace.workspace ?? currentWorkspace;
 
-        let ownerId: string | undefined;
+        const role =
+          currentWorkspace.role ?? 'member';
 
-        if (
-          member.role === 'owner'
-        ) {
-          ownerId =
-            member.user_id;
+        const ownerId =
+          role === 'owner'
+            ? user.id
+            : undefined;
 
-        } else {
-
-          const {
-            data: ownerMember,
-            error: ownerError,
-          } =
-            await supabase
-              .from('workspace_members')
-              .select(
-                `
-                  user_id
-                `
-              )
-              .eq(
-                'workspace_id',
-                member.workspace_id
-              )
-              .eq(
-                'role',
-                'owner'
-              )
-              .limit(1)
-              .maybeSingle();
-
-          if (ownerError) {
-            console.warn(
-              '[authService] Não foi possível obter o proprietário:',
-              ownerError
-            );
-          }
-
-          ownerId =
-            ownerMember?.user_id;
+        if (!workspaceData?.id || !isValidUUID(workspaceData.id)) {
+          console.error(
+            '[authService] RPC retornou workspace inválido:',
+            currentWorkspace
+          );
+          return null;
         }
 
-        // ----------------------------------------------------
-        // MAPEAR WORKSPACE
-        // ----------------------------------------------------
-
-        const workspace =
-          mapWorkspace(
-            workspaceData,
-            member.role,
-            ownerId
-          );
-
-        // ----------------------------------------------------
-        // CACHE LOCAL
-        // ----------------------------------------------------
+        const workspace = mapWorkspace(
+          workspaceData,
+          role,
+          ownerId
+        );
 
         localStorage.setItem(
           WORKSPACE_KEY,
-          JSON.stringify(
-            workspace
-          )
+          JSON.stringify(workspace)
         );
 
         return workspace;
@@ -915,39 +690,26 @@ export const authService = {
       // LOCAL / DEMO
       // ======================================================
 
-      const saved =
-        localStorage.getItem(
-          WORKSPACE_KEY
-        );
+      const saved = localStorage.getItem(WORKSPACE_KEY);
 
       if (saved) {
-
         try {
-
-          return JSON.parse(
-            saved
-          ) as Workspace;
-
+          return JSON.parse(saved) as Workspace;
         } catch {
-
-          localStorage.removeItem(
-            WORKSPACE_KEY
-          );
+          localStorage.removeItem(WORKSPACE_KEY);
         }
       }
 
       return MOCK_WORKSPACE;
-
     } catch (error) {
-
       console.error(
         '[authService] Erro inesperado ao carregar workspace:',
         error
       );
-
       return null;
     }
   },
+
 
   // ==========================================================
   // LOGIN
@@ -1738,187 +1500,6 @@ export const authService = {
     throw new Error(
       `Não é possível iniciar o plano ${plan} desta forma. Utilize o processo de pagamento.`
     );
-  },
-
-  // ==========================================================
-  // INICIAR ASSINATURA PAGA
-  // ==========================================================
-
-  async startPaidSubscription(
-    selectedPlan: 'pro' | 'enterprise',
-    provider: 'paypal' = 'paypal'
-  ): Promise<{
-    provider: string;
-    subscriptionId: string;
-    approvalUrl: string;
-  }> {
-    const plan = validateTrialPlan(selectedPlan);
-
-    if (!isSupabaseConfigured || !supabase) {
-      throw new Error('Supabase não está configurado.');
-    }
-
-    const {
-      data: sessionData,
-      error: sessionError,
-    } = await supabase.auth.getSession();
-
-    if (sessionError || !sessionData.session?.access_token) {
-      throw new Error('Usuário não autenticado. Faça login novamente.');
-    }
-
-    const currentWorkspace = await this.getCurrentWorkspace();
-
-    if (!currentWorkspace) {
-      throw new Error('Nenhum workspace encontrado.');
-    }
-
-    if (!isValidUUID(currentWorkspace.id)) {
-      throw new Error('O ID do workspace não é um UUID válido.');
-    }
-
-    if (normalizePlan(currentWorkspace.plan) === plan &&
-        currentWorkspace.trialUsed &&
-        currentWorkspace.trialEndsAt &&
-        new Date(currentWorkspace.trialEndsAt).getTime() > Date.now()) {
-      throw new Error('O plano já está ativo em período de teste.');
-    }
-
-    if (normalizePlan(currentWorkspace.plan) !== PLANS.FREE) {
-      throw new Error('O workspace já possui um plano pago ativo.');
-    }
-
-    if (!currentWorkspace.trialUsed) {
-      throw new Error('O período de teste ainda está disponível. Inicie o trial antes de realizar a assinatura paga.');
-    }
-
-    if (provider !== 'paypal') {
-      throw new Error('Provedor de pagamento ainda não disponível para assinatura do plano.');
-    }
-
-    const { data, error } = await supabase.functions.invoke(
-      'create-paypal-subscription',
-      {
-        body: {
-          workspace_id: currentWorkspace.id,
-          plan,
-          currency: String(currentWorkspace.currency || 'EUR').toUpperCase(),
-        },
-      }
-    );
-
-    if (error) {
-      let message = error.message || 'Não foi possível iniciar a assinatura PayPal.';
-      try {
-        const context = (error as any)?.context;
-        if (context?.json) {
-          const payload = await context.json();
-          if (payload?.error) message = payload.error;
-        }
-      } catch {
-        // Mantém a mensagem original.
-      }
-      throw new Error(message);
-    }
-
-    if (!data?.approval_url || !data?.subscription_id) {
-      throw new Error(
-        data?.error ||
-        'O PayPal não retornou o endereço de aprovação da assinatura.'
-      );
-    }
-
-    return {
-      provider: 'paypal',
-      subscriptionId: String(data.subscription_id),
-      approvalUrl: String(data.approval_url),
-    };
-  },
-
-  // ==========================================================
-  // MERCADO PAGO PIX
-  // ==========================================================
-
-  async startMercadoPagoPix(
-    selectedPlan: 'pro' | 'enterprise'
-  ): Promise<{
-    paymentId: string;
-    qrCode: string;
-    qrCodeBase64?: string | null;
-    ticketUrl?: string | null;
-  }> {
-    const plan = validateTrialPlan(selectedPlan);
-
-    if (!isSupabaseConfigured || !supabase) {
-      throw new Error('Supabase não está configurado.');
-    }
-
-    const { data: sessionData, error: sessionError } =
-      await supabase.auth.getSession();
-
-    if (sessionError || !sessionData.session?.access_token) {
-      throw new Error('Usuário não autenticado. Faça login novamente.');
-    }
-
-    const currentWorkspace = await this.getCurrentWorkspace();
-
-    if (!currentWorkspace) {
-      throw new Error('Não foi possível validar o acesso ao workspace.');
-    }
-
-    if (!isValidUUID(currentWorkspace.id)) {
-      throw new Error('O ID do workspace não é um UUID válido.');
-    }
-
-    if (String(currentWorkspace.currency || '').toUpperCase() !== 'BRL') {
-      throw new Error('O Mercado Pago PIX está disponível para cobranças em BRL. Altere a moeda do workspace para BRL para utilizar este método.');
-    }
-
-    if (normalizePlan(currentWorkspace.plan) !== PLANS.FREE) {
-      throw new Error('O workspace já possui um plano pago ativo.');
-    }
-
-    if (!currentWorkspace.trialUsed) {
-      throw new Error('Inicie primeiro o período de 14 dias grátis.');
-    }
-
-    const { data, error } = await supabase.functions.invoke(
-      'create-mercadopago-pix',
-      {
-        body: {
-          workspace_id: currentWorkspace.id,
-          plan,
-          email: sessionData.session.user.email || '',
-        },
-      }
-    );
-
-    if (error) {
-      let message = error.message || 'Não foi possível criar o PIX no Mercado Pago.';
-      try {
-        const context = (error as any)?.context;
-        if (context?.json) {
-          const payload = await context.json();
-          if (payload?.error) message = payload.error;
-        }
-      } catch {
-        // Mantém a mensagem original.
-      }
-      throw new Error(message);
-    }
-
-    if (!data?.pix?.qr_code || !data?.payment?.provider_payment_id) {
-      throw new Error(
-        data?.error || 'O Mercado Pago não retornou os dados do PIX.'
-      );
-    }
-
-    return {
-      paymentId: String(data.payment.provider_payment_id),
-      qrCode: String(data.pix.qr_code),
-      qrCodeBase64: data.pix.qr_code_base64 || null,
-      ticketUrl: data.pix.ticket_url || null,
-    };
   },
 
   // ==========================================================
