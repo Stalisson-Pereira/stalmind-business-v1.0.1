@@ -107,7 +107,7 @@ export const PLAN_LIMITS = {
 
     pix: true,
     paypal: true,
-    stripe: true,
+    stripe: false,
     sumup: true,
 
     whatsappReminders: true,
@@ -139,7 +139,7 @@ export const PLAN_LIMITS = {
 
     pix: true,
     paypal: true,
-    stripe: true,
+    stripe: false,
     sumup: true,
 
     whatsappReminders: true,
@@ -604,94 +604,48 @@ export const authService = {
 
   async getCurrentWorkspace(): Promise<Workspace | null> {
     try {
-      // ======================================================
-      // SUPABASE
-      // ======================================================
-      // A leitura do workspace é feita pela RPC SECURITY DEFINER.
-      // Isso evita que o RLS de workspace_members/workspaces
-      // interrompa a validação durante o login.
-      // ======================================================
       if (isSupabaseConfigured && supabase) {
-        const {
-          data: sessionData,
-          error: sessionError,
-        } = await supabase.auth.getSession();
+        const { data: sessionData, error: sessionError } =
+          await supabase.auth.getSession();
 
         if (sessionError) {
-          console.warn(
-            '[authService] Erro ao obter sessão:',
-            sessionError.message
-          );
+          console.warn('[authService] Erro ao obter sessão:', sessionError.message);
           return null;
         }
 
-        const user = sessionData.session?.user;
+        if (!sessionData.session?.user) return null;
 
-        if (!user) {
+        // A RPC resolve membership/workspace com SECURITY DEFINER, evitando
+        // falhas de RLS durante o carregamento inicial.
+        let { data, error } = await supabase.rpc('get_current_workspace');
+
+        if (error) {
+          console.error('[authService] Erro na RPC get_current_workspace:', error);
           return null;
         }
 
-        // A RPC cria o workspace/membership se necessário e
-        // devolve workspace + role + user_id em uma única chamada.
-        const {
-          data: currentWorkspace,
-          error: workspaceError,
-        } = await supabase.rpc('get_current_workspace');
+        // Algumas versões da RPC podem retornar JSONB diretamente.
+        const payload = data as any;
+        const workspaceData = payload?.workspace ?? null;
+        const role = payload?.role ?? 'member';
+        const userId = payload?.user_id ?? sessionData.session.user.id;
 
-        if (workspaceError) {
-          console.error(
-            '[authService] Erro na RPC get_current_workspace:',
-            workspaceError
-          );
-          return null;
-        }
-
-        if (!currentWorkspace) {
-          console.warn(
-            '[authService] RPC get_current_workspace não retornou workspace.'
-          );
-          return null;
-        }
-
-        const workspaceData =
-          currentWorkspace.workspace ?? currentWorkspace;
-
-        const role =
-          currentWorkspace.role ?? 'member';
-
-        const ownerId =
-          role === 'owner'
-            ? user.id
-            : undefined;
-
-        if (!workspaceData?.id || !isValidUUID(workspaceData.id)) {
-          console.error(
-            '[authService] RPC retornou workspace inválido:',
-            currentWorkspace
-          );
+        if (!workspaceData?.id || !isValidUUID(String(workspaceData.id))) {
+          console.warn('[authService] RPC não retornou um workspace válido.');
           return null;
         }
 
         const workspace = mapWorkspace(
           workspaceData,
           role,
-          ownerId
+          role === 'owner' ? userId : undefined
         );
 
-        localStorage.setItem(
-          WORKSPACE_KEY,
-          JSON.stringify(workspace)
-        );
-
+        localStorage.setItem(WORKSPACE_KEY, JSON.stringify(workspace));
         return workspace;
       }
 
-      // ======================================================
-      // LOCAL / DEMO
-      // ======================================================
-
       const saved = localStorage.getItem(WORKSPACE_KEY);
-
       if (saved) {
         try {
           return JSON.parse(saved) as Workspace;
@@ -702,14 +656,10 @@ export const authService = {
 
       return MOCK_WORKSPACE;
     } catch (error) {
-      console.error(
-        '[authService] Erro inesperado ao carregar workspace:',
-        error
-      );
+      console.error('[authService] Erro inesperado ao carregar workspace:', error);
       return null;
     }
   },
-
 
   // ==========================================================
   // LOGIN
@@ -1500,6 +1450,187 @@ export const authService = {
     throw new Error(
       `Não é possível iniciar o plano ${plan} desta forma. Utilize o processo de pagamento.`
     );
+  },
+
+  // ==========================================================
+  // INICIAR ASSINATURA PAGA
+  // ==========================================================
+
+  async startPaidSubscription(
+    selectedPlan: 'pro' | 'enterprise',
+    provider: 'paypal' = 'paypal'
+  ): Promise<{
+    provider: string;
+    subscriptionId: string;
+    approvalUrl: string;
+  }> {
+    const plan = validateTrialPlan(selectedPlan);
+
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error('Supabase não está configurado.');
+    }
+
+    const {
+      data: sessionData,
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !sessionData.session?.access_token) {
+      throw new Error('Usuário não autenticado. Faça login novamente.');
+    }
+
+    const currentWorkspace = await this.getCurrentWorkspace();
+
+    if (!currentWorkspace) {
+      throw new Error('Nenhum workspace encontrado.');
+    }
+
+    if (!isValidUUID(currentWorkspace.id)) {
+      throw new Error('O ID do workspace não é um UUID válido.');
+    }
+
+    if (normalizePlan(currentWorkspace.plan) === plan &&
+        currentWorkspace.trialUsed &&
+        currentWorkspace.trialEndsAt &&
+        new Date(currentWorkspace.trialEndsAt).getTime() > Date.now()) {
+      throw new Error('O plano já está ativo em período de teste.');
+    }
+
+    if (normalizePlan(currentWorkspace.plan) !== PLANS.FREE) {
+      throw new Error('O workspace já possui um plano pago ativo.');
+    }
+
+    if (!currentWorkspace.trialUsed) {
+      throw new Error('O período de teste ainda está disponível. Inicie o trial antes de realizar a assinatura paga.');
+    }
+
+    if (provider !== 'paypal') {
+      throw new Error('Provedor de pagamento ainda não disponível para assinatura do plano.');
+    }
+
+    const { data, error } = await supabase.functions.invoke(
+      'create-paypal-subscription',
+      {
+        body: {
+          workspace_id: currentWorkspace.id,
+          plan,
+          currency: String(currentWorkspace.currency || 'EUR').toUpperCase(),
+        },
+      }
+    );
+
+    if (error) {
+      let message = error.message || 'Não foi possível iniciar a assinatura PayPal.';
+      try {
+        const context = (error as any)?.context;
+        if (context?.json) {
+          const payload = await context.json();
+          if (payload?.error) message = payload.error;
+        }
+      } catch {
+        // Mantém a mensagem original.
+      }
+      throw new Error(message);
+    }
+
+    if (!data?.approval_url || !data?.subscription_id) {
+      throw new Error(
+        data?.error ||
+        'O PayPal não retornou o endereço de aprovação da assinatura.'
+      );
+    }
+
+    return {
+      provider: 'paypal',
+      subscriptionId: String(data.subscription_id),
+      approvalUrl: String(data.approval_url),
+    };
+  },
+
+  // ==========================================================
+  // MERCADO PAGO PIX
+  // ==========================================================
+
+  async startMercadoPagoPix(
+    selectedPlan: 'pro' | 'enterprise'
+  ): Promise<{
+    paymentId: string;
+    qrCode: string;
+    qrCodeBase64?: string | null;
+    ticketUrl?: string | null;
+  }> {
+    const plan = validateTrialPlan(selectedPlan);
+
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error('Supabase não está configurado.');
+    }
+
+    const { data: sessionData, error: sessionError } =
+      await supabase.auth.getSession();
+
+    if (sessionError || !sessionData.session?.access_token) {
+      throw new Error('Usuário não autenticado. Faça login novamente.');
+    }
+
+    const currentWorkspace = await this.getCurrentWorkspace();
+
+    if (!currentWorkspace) {
+      throw new Error('Não foi possível validar o acesso ao workspace.');
+    }
+
+    if (!isValidUUID(currentWorkspace.id)) {
+      throw new Error('O ID do workspace não é um UUID válido.');
+    }
+
+    if (String(currentWorkspace.currency || '').toUpperCase() !== 'BRL') {
+      throw new Error('O Mercado Pago PIX está disponível para cobranças em BRL. Altere a moeda do workspace para BRL para utilizar este método.');
+    }
+
+    if (normalizePlan(currentWorkspace.plan) !== PLANS.FREE) {
+      throw new Error('O workspace já possui um plano pago ativo.');
+    }
+
+    if (!currentWorkspace.trialUsed) {
+      throw new Error('Inicie primeiro o período de 14 dias grátis.');
+    }
+
+    const { data, error } = await supabase.functions.invoke(
+      'create-mercadopago-pix',
+      {
+        body: {
+          workspace_id: currentWorkspace.id,
+          plan,
+          email: sessionData.session.user.email || '',
+        },
+      }
+    );
+
+    if (error) {
+      let message = error.message || 'Não foi possível criar o PIX no Mercado Pago.';
+      try {
+        const context = (error as any)?.context;
+        if (context?.json) {
+          const payload = await context.json();
+          if (payload?.error) message = payload.error;
+        }
+      } catch {
+        // Mantém a mensagem original.
+      }
+      throw new Error(message);
+    }
+
+    if (!data?.pix?.qr_code || !data?.payment?.provider_payment_id) {
+      throw new Error(
+        data?.error || 'O Mercado Pago não retornou os dados do PIX.'
+      );
+    }
+
+    return {
+      paymentId: String(data.payment.provider_payment_id),
+      qrCode: String(data.pix.qr_code),
+      qrCodeBase64: data.pix.qr_code_base64 || null,
+      ticketUrl: data.pix.ticket_url || null,
+    };
   },
 
   // ==========================================================
