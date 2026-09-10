@@ -17,37 +17,37 @@ const PLANS = [
     {
         plan: "pro",
         currency: "BRL",
-        amount: "69.99",
+        amount: "39.99",
         name: "STALMIND Pro BRL",
     },
     {
         plan: "pro",
         currency: "EUR",
-        amount: "16.99",
+        amount: "7.99",
         name: "STALMIND Pro EUR",
     },
     {
         plan: "pro",
         currency: "USD",
-        amount: "17.99",
+        amount: "9.99",
         name: "STALMIND Pro USD",
     },
     {
         plan: "enterprise",
         currency: "BRL",
-        amount: "499.99",
+        amount: "99.90",
         name: "STALMIND Enterprise BRL",
     },
     {
         plan: "enterprise",
         currency: "EUR",
-        amount: "69.99",
+        amount: "39.90",
         name: "STALMIND Enterprise EUR",
     },
     {
         plan: "enterprise",
         currency: "USD",
-        amount: "73.99",
+        amount: "43.90",
         name: "STALMIND Enterprise USD",
     },
 ] as const;

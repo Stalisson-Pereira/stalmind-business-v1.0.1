@@ -216,7 +216,7 @@ const DATABASE_PRICES: DatabasePrice[] = [
         plan: 'enterprise',
         provider: 'paypal',
         currency: 'EUR',
-        amount: 49.90,
+        amount: 39.90,
         billing_interval: 'month',
         provider_product_id:
             'PROD-14L75980AN859381C',
@@ -230,7 +230,7 @@ const DATABASE_PRICES: DatabasePrice[] = [
         plan: 'enterprise',
         provider: 'paypal',
         currency: 'USD',
-        amount: 53.90,
+        amount: 43.90,
         billing_interval: 'month',
         provider_product_id:
             'PROD-14L75980AN859381C',
@@ -244,7 +244,7 @@ const DATABASE_PRICES: DatabasePrice[] = [
         plan: 'pro',
         provider: 'paypal',
         currency: 'BRL',
-        amount: 39.90,
+        amount: 39.99,
         billing_interval: 'month',
         provider_product_id:
             'PROD-14L75980AN859381C',
@@ -258,7 +258,7 @@ const DATABASE_PRICES: DatabasePrice[] = [
         plan: 'pro',
         provider: 'paypal',
         currency: 'EUR',
-        amount: 14.90,
+        amount: 7.99,
         billing_interval: 'month',
         provider_product_id:
             'PROD-14L75980AN859381C',
@@ -272,7 +272,7 @@ const DATABASE_PRICES: DatabasePrice[] = [
         plan: 'pro',
         provider: 'paypal',
         currency: 'USD',
-        amount: 15.90,
+        amount: 9.99,
         billing_interval: 'month',
         provider_product_id:
             'PROD-14L75980AN859381C',
