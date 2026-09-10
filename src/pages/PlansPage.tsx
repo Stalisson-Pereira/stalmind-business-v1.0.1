@@ -216,7 +216,7 @@ const DATABASE_PRICES: DatabasePrice[] = [
         plan: 'enterprise',
         provider: 'paypal',
         currency: 'EUR',
-        amount: 39.90,
+        amount: 49.90,
         billing_interval: 'month',
         provider_product_id:
             'PROD-14L75980AN859381C',
@@ -230,7 +230,7 @@ const DATABASE_PRICES: DatabasePrice[] = [
         plan: 'enterprise',
         provider: 'paypal',
         currency: 'USD',
-        amount: 43.90,
+        amount: 53.90,
         billing_interval: 'month',
         provider_product_id:
             'PROD-14L75980AN859381C',
@@ -244,7 +244,7 @@ const DATABASE_PRICES: DatabasePrice[] = [
         plan: 'pro',
         provider: 'paypal',
         currency: 'BRL',
-        amount: 39.99,
+        amount: 39.90,
         billing_interval: 'month',
         provider_product_id:
             'PROD-14L75980AN859381C',
@@ -258,7 +258,7 @@ const DATABASE_PRICES: DatabasePrice[] = [
         plan: 'pro',
         provider: 'paypal',
         currency: 'EUR',
-        amount: 7.99,
+        amount: 14.90,
         billing_interval: 'month',
         provider_product_id:
             'PROD-14L75980AN859381C',
@@ -272,7 +272,7 @@ const DATABASE_PRICES: DatabasePrice[] = [
         plan: 'pro',
         provider: 'paypal',
         currency: 'USD',
-        amount: 9.99,
+        amount: 15.90,
         billing_interval: 'month',
         provider_product_id:
             'PROD-14L75980AN859381C',
@@ -386,6 +386,9 @@ export const PlansPage: React.FC = () => {
         useState(false);
 
     const [isProcessing, setIsProcessing] =
+        useState(false);
+
+    const [isCancellingPayPal, setIsCancellingPayPal] =
         useState(false);
 
     const [trialSuccess, setTrialSuccess] =
@@ -939,6 +942,24 @@ export const PlansPage: React.FC = () => {
     /* ============================================================
        CONFIRMAR TRIAL
     ============================================================ */
+
+    const cancelPendingPayPal = async () => {
+        setIsCancellingPayPal(true);
+        setErrorMessage(null);
+
+        try {
+            await authService.cancelPayPalSubscription();
+            setErrorMessage('A assinatura PayPal anterior foi cancelada. Agora você pode gerar uma nova.');
+        } catch (error) {
+            setErrorMessage(
+                error instanceof Error
+                    ? error.message
+                    : 'Não foi possível cancelar a assinatura PayPal anterior.'
+            );
+        } finally {
+            setIsCancellingPayPal(false);
+        }
+    };
 
     const confirmStartTrial =
         async () => {
@@ -1840,11 +1861,20 @@ export const PlansPage: React.FC = () => {
 
                                 <X className="w-4 h-4 shrink-0 mt-0.5" />
 
-                                <span>
-                                    {
-                                        errorMessage
-                                    }
-                                </span>
+                                <div className="flex-1 space-y-3">
+                                    <span className="block">{errorMessage}</span>
+                                    {paymentProvider === 'paypal' &&
+                                        /já existe uma assinatura|processamento ou ativa|assinatura paypal/i.test(errorMessage) && (
+                                            <button
+                                                type="button"
+                                                onClick={cancelPendingPayPal}
+                                                disabled={isCancellingPayPal}
+                                                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold disabled:opacity-60"
+                                            >
+                                                {isCancellingPayPal ? 'Cancelando assinatura PayPal...' : 'Cancelar esta assinatura e gerar outra'}
+                                            </button>
+                                        )}
+                                </div>
 
                             </div>
 
@@ -2109,13 +2139,52 @@ export const PlansPage: React.FC = () => {
                         )}
 
                         {mercadoPagoPix && (
-                            <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 space-y-3">
-                                <div><strong className="block text-sm text-emerald-700 dark:text-emerald-300">PIX Mercado Pago criado</strong><span className="text-xs text-emerald-600 dark:text-emerald-400">Pague o valor para ativar o plano.</span></div>
-                                {mercadoPagoPix.qrCodeBase64 && <img src={`data:image/png;base64,${mercadoPagoPix.qrCodeBase64}`} alt="QR Code PIX Mercado Pago" className="mx-auto w-48 h-48 rounded-xl bg-white p-2" />}
-                                <div className="flex gap-2">
-                                    <button type="button" onClick={() => navigator.clipboard.writeText(mercadoPagoPix.qrCode)} className="flex-1 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold">Copiar PIX</button>
-                                    {mercadoPagoPix.ticketUrl && <a href={mercadoPagoPix.ticketUrl} target="_blank" rel="noreferrer" className="flex-1 py-2 rounded-lg border border-emerald-300 text-emerald-700 text-xs font-bold text-center">Abrir Mercado Pago</a>}
+                            <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 space-y-4">
+                                <div>
+                                    <strong className="block text-sm text-emerald-700 dark:text-emerald-300">PIX Mercado Pago pronto</strong>
+                                    <span className="text-xs text-emerald-600 dark:text-emerald-400">Escolha como pagar: QR Code ou PIX Copia e Cola.</span>
                                 </div>
+
+                                {mercadoPagoPix.qrCodeBase64 && (
+                                    <div className="flex justify-center">
+                                        <img
+                                            src={`data:image/png;base64,${mercadoPagoPix.qrCodeBase64}`}
+                                            alt="QR Code PIX Mercado Pago"
+                                            className="w-56 h-56 rounded-2xl bg-white p-3 shadow-sm"
+                                        />
+                                    </div>
+                                )}
+
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-emerald-800 dark:text-emerald-200">PIX Copia e Cola</label>
+                                    <textarea
+                                        readOnly
+                                        value={mercadoPagoPix.qrCode}
+                                        rows={4}
+                                        className="w-full rounded-xl border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-slate-950 px-3 py-2 text-[11px] leading-4 text-slate-700 dark:text-slate-200 resize-none focus:outline-none"
+                                        onFocus={(event) => event.currentTarget.select()}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            await navigator.clipboard.writeText(mercadoPagoPix.qrCode);
+                                        }}
+                                        className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors"
+                                    >
+                                        Copiar código PIX
+                                    </button>
+                                </div>
+
+                                {mercadoPagoPix.ticketUrl && (
+                                    <a
+                                        href={mercadoPagoPix.ticketUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="block w-full py-3 rounded-xl border border-emerald-300 text-emerald-700 dark:text-emerald-300 text-xs font-bold text-center hover:bg-emerald-100 dark:hover:bg-emerald-950/50 transition-colors"
+                                    >
+                                        Abrir pagamento do Mercado Pago
+                                    </a>
+                                )}
                             </div>
                         )}
 

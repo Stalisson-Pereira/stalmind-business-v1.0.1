@@ -604,89 +604,347 @@ export const authService = {
 
   async getCurrentWorkspace(): Promise<Workspace | null> {
     try {
-      if (!isSupabaseConfigured || !supabase) {
-        const saved = localStorage.getItem(WORKSPACE_KEY);
-        if (saved) {
-          try { return JSON.parse(saved) as Workspace; } catch { localStorage.removeItem(WORKSPACE_KEY); }
-        }
-        return MOCK_WORKSPACE;
-      }
 
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !sessionData.session?.user) return null;
+      // ======================================================
+      // SUPABASE
+      // ======================================================
 
-      const user = sessionData.session.user;
-      let workspaceData: any = null;
-      let role: any = 'member';
-      let ownerId: string | undefined;
+      if (
+        isSupabaseConfigured &&
+        supabase
+      ) {
 
-      // 1) Caminho principal: RPC SECURITY DEFINER.
-      const { data: rpcData, error: rpcError } = await supabase.rpc('get_current_workspace');
-      if (!rpcError && rpcData) {
-        const payload: any = Array.isArray(rpcData) ? rpcData[0] : rpcData;
-        workspaceData = payload?.workspace ?? null;
-        role = payload?.role ?? 'member';
-        ownerId = payload?.user_id;
-      } else if (rpcError) {
-        console.warn('[authService] RPC get_current_workspace falhou; usando fallback:', rpcError.message);
-      }
+        // ----------------------------------------------------
+        // OBTER SESSÃO
+        // ----------------------------------------------------
 
-      // 2) Fallback: resolve diretamente o membership do usuário.
-      if (!workspaceData?.id) {
-        const { data: member, error: memberError } = await supabase
-          .from('workspace_members')
-          .select('user_id, workspace_id, role')
-          .eq('user_id', user.id)
-          .limit(1)
-          .maybeSingle();
+        const {
+          data: sessionData,
+          error: sessionError,
+        } =
+          await supabase.auth.getSession();
 
-        if (memberError) {
-          console.error('[authService] Erro ao buscar workspace_members:', memberError);
+        if (sessionError) {
+          console.warn(
+            '[authService] Erro ao obter sessão:',
+            sessionError.message
+          );
+
           return null;
         }
 
-        if (!member?.workspace_id || !isValidUUID(String(member.workspace_id))) {
-          console.warn('[authService] Usuário sem workspace válido:', user.id);
+        const user =
+          sessionData.session?.user;
+
+        // ----------------------------------------------------
+        // SEM SESSÃO
+        // ----------------------------------------------------
+
+        if (!user) {
           return null;
         }
 
-        const { data: directWorkspace, error: workspaceError } = await supabase
-          .from('workspaces')
-          .select('id,name,slug,legal_name,tax_id,email,phone,website,address,city,postal_code,country,currency,locale,timezone,logo_url,default_tax_rate,plan,plan_billing,trial_started_at,trial_ends_at,trial_used,created_at,updated_at')
-          .eq('id', member.workspace_id)
-          .maybeSingle();
+        // ----------------------------------------------------
+        // BUSCAR MEMBRO
+        // ----------------------------------------------------
+        //
+        // NÃO USAMOS workspaces(owner_id)
+        // NÃO USAMOS workspaces(*)
+        //
+        // O relacionamento é resolvido manualmente.
+        // ----------------------------------------------------
 
-        if (workspaceError || !directWorkspace) {
-          console.error('[authService] Erro ao buscar workspace:', workspaceError);
-          return null;
-        }
-
-        workspaceData = directWorkspace;
-        role = member.role ?? 'member';
-        ownerId = role === 'owner' ? member.user_id : undefined;
-
-        if (!ownerId) {
-          const { data: ownerMember } = await supabase
+        const {
+          data: member,
+          error: memberError,
+        } =
+          await supabase
             .from('workspace_members')
-            .select('user_id')
-            .eq('workspace_id', member.workspace_id)
-            .eq('role', 'owner')
+            .select(
+              `
+                user_id,
+                workspace_id,
+                role
+              `
+            )
+            .eq(
+              'user_id',
+              user.id
+            )
             .limit(1)
             .maybeSingle();
-          ownerId = ownerMember?.user_id;
+
+        if (memberError) {
+          console.error(
+            '[authService] Erro ao buscar workspace_members:',
+            memberError
+          );
+
+          return null;
+        }
+
+        if (!member) {
+          console.warn(
+            '[authService] Usuário não possui workspace associado. Tentando provisionar workspace:',
+            user.id
+          );
+
+          const {
+            data: ensuredWorkspaceId,
+            error: ensureWorkspaceError,
+          } = await supabase.rpc('ensure_user_workspace');
+
+          if (ensureWorkspaceError || !ensuredWorkspaceId) {
+            console.error(
+              '[authService] Não foi possível provisionar o workspace:',
+              ensureWorkspaceError
+            );
+            return null;
+          }
+
+          const ensuredId = String(ensuredWorkspaceId);
+
+          if (!isValidUUID(ensuredId)) {
+            console.error(
+              '[authService] ensure_user_workspace retornou um ID inválido:',
+              ensuredId
+            );
+            return null;
+          }
+
+          const { data: repairedMember, error: repairedMemberError } =
+            await supabase
+              .from('workspace_members')
+              .select('user_id, workspace_id, role')
+              .eq('user_id', user.id)
+              .eq('workspace_id', ensuredId)
+              .maybeSingle();
+
+          if (repairedMemberError || !repairedMember) {
+            console.error(
+              '[authService] Workspace provisionado, mas membership não pôde ser lido:',
+              repairedMemberError
+            );
+            return null;
+          }
+
+          // Continua o fluxo normal usando o membership recém-criado.
+          // eslint/TypeScript não permite reatribuir const, então seguimos
+          // diretamente para a leitura do workspace abaixo.
+          const { data: repairedWorkspace, error: repairedWorkspaceError } =
+            await supabase
+              .from('workspaces')
+              .select(`
+                id, name, slug, legal_name, tax_id, email, phone, website,
+                address, city, postal_code, country, currency, locale, timezone,
+                logo_url, default_tax_rate, plan, plan_billing, trial_started_at,
+                trial_ends_at, trial_used, created_at, updated_at
+              `)
+              .eq('id', ensuredId)
+              .maybeSingle();
+
+          if (repairedWorkspaceError || !repairedWorkspace) {
+            console.error(
+              '[authService] Não foi possível ler o workspace provisionado:',
+              repairedWorkspaceError
+            );
+            return null;
+          }
+
+          return mapWorkspace(repairedWorkspace, repairedMember.role, repairedMember.user_id);
+        }
+
+        // ----------------------------------------------------
+        // VALIDAR WORKSPACE ID
+        // ----------------------------------------------------
+
+        if (
+          !isValidUUID(
+            member.workspace_id
+          )
+        ) {
+          console.error(
+            '[authService] workspace_id inválido:',
+            member.workspace_id
+          );
+
+          return null;
+        }
+
+        // ----------------------------------------------------
+        // BUSCAR WORKSPACE
+        // ----------------------------------------------------
+        //
+        // ATENÇÃO:
+        // owner_id NÃO EXISTE NA SUA TABELA.
+        //
+        // Portanto NÃO está no SELECT.
+        // ----------------------------------------------------
+
+        const {
+          data: workspaceData,
+          error: workspaceError,
+        } =
+          await supabase
+            .from('workspaces')
+            .select(
+              `
+                id,
+                name,
+                slug,
+                legal_name,
+                tax_id,
+                email,
+                phone,
+                website,
+                address,
+                city,
+                postal_code,
+                country,
+                currency,
+                locale,
+                timezone,
+                logo_url,
+                default_tax_rate,
+                plan,
+                plan_billing,
+                trial_started_at,
+                trial_ends_at,
+                trial_used,
+                created_at,
+                updated_at
+              `
+            )
+            .eq(
+              'id',
+              member.workspace_id
+            )
+            .maybeSingle();
+
+        if (workspaceError) {
+          console.error(
+            '[authService] Erro ao buscar workspace:',
+            workspaceError
+          );
+
+          return null;
+        }
+
+        if (!workspaceData) {
+          console.warn(
+            '[authService] Workspace não encontrado:',
+            member.workspace_id
+          );
+
+          return null;
+        }
+
+        // ----------------------------------------------------
+        // BUSCAR OWNER ATRAVÉS DE workspace_members
+        // ----------------------------------------------------
+
+        let ownerId: string | undefined;
+
+        if (
+          member.role === 'owner'
+        ) {
+          ownerId =
+            member.user_id;
+
+        } else {
+
+          const {
+            data: ownerMember,
+            error: ownerError,
+          } =
+            await supabase
+              .from('workspace_members')
+              .select(
+                `
+                  user_id
+                `
+              )
+              .eq(
+                'workspace_id',
+                member.workspace_id
+              )
+              .eq(
+                'role',
+                'owner'
+              )
+              .limit(1)
+              .maybeSingle();
+
+          if (ownerError) {
+            console.warn(
+              '[authService] Não foi possível obter o proprietário:',
+              ownerError
+            );
+          }
+
+          ownerId =
+            ownerMember?.user_id;
+        }
+
+        // ----------------------------------------------------
+        // MAPEAR WORKSPACE
+        // ----------------------------------------------------
+
+        const workspace =
+          mapWorkspace(
+            workspaceData,
+            member.role,
+            ownerId
+          );
+
+        // ----------------------------------------------------
+        // CACHE LOCAL
+        // ----------------------------------------------------
+
+        localStorage.setItem(
+          WORKSPACE_KEY,
+          JSON.stringify(
+            workspace
+          )
+        );
+
+        return workspace;
+      }
+
+      // ======================================================
+      // LOCAL / DEMO
+      // ======================================================
+
+      const saved =
+        localStorage.getItem(
+          WORKSPACE_KEY
+        );
+
+      if (saved) {
+
+        try {
+
+          return JSON.parse(
+            saved
+          ) as Workspace;
+
+        } catch {
+
+          localStorage.removeItem(
+            WORKSPACE_KEY
+          );
         }
       }
 
-      if (!workspaceData?.id || !isValidUUID(String(workspaceData.id))) {
-        console.error('[authService] Workspace retornado não possui UUID válido:', workspaceData);
-        return null;
-      }
+      return MOCK_WORKSPACE;
 
-      const workspace = mapWorkspace(workspaceData, role, ownerId);
-      localStorage.setItem(WORKSPACE_KEY, JSON.stringify(workspace));
-      return workspace;
     } catch (error) {
-      console.error('[authService] Erro inesperado ao carregar workspace:', error);
+
+      console.error(
+        '[authService] Erro inesperado ao carregar workspace:',
+        error
+      );
+
       return null;
     }
   },
@@ -1574,6 +1832,58 @@ export const authService = {
       provider: 'paypal',
       subscriptionId: String(data.subscription_id),
       approvalUrl: String(data.approval_url),
+    };
+  },
+
+  // ==========================================================
+  // CANCELAR ASSINATURA PAYPAL PENDENTE/ATIVA
+  // ==========================================================
+
+  async cancelPayPalSubscription(): Promise<{
+    cancelled: boolean;
+    previousSubscriptionId?: string;
+  }> {
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error('Supabase não está configurado.');
+    }
+
+    const { data: sessionData, error: sessionError } =
+      await supabase.auth.getSession();
+
+    if (sessionError || !sessionData.session?.access_token) {
+      throw new Error('Usuário não autenticado. Faça login novamente.');
+    }
+
+    const currentWorkspace = await this.getCurrentWorkspace();
+
+    if (!currentWorkspace || !isValidUUID(currentWorkspace.id)) {
+      throw new Error('Workspace inválido.');
+    }
+
+    const { data, error } = await supabase.functions.invoke(
+      'cancel-paypal-subscription',
+      { body: { workspace_id: currentWorkspace.id } }
+    );
+
+    if (error) {
+      let message = error.message || 'Não foi possível cancelar a assinatura PayPal.';
+      try {
+        const context = (error as any)?.context;
+        if (context?.json) {
+          const payload = await context.json();
+          if (payload?.error) message = payload.error;
+        }
+      } catch {
+        // Mantém a mensagem original.
+      }
+      throw new Error(message);
+    }
+
+    return {
+      cancelled: Boolean(data?.cancelled),
+      previousSubscriptionId: data?.previous_subscription_id
+        ? String(data.previous_subscription_id)
+        : undefined,
     };
   },
 
